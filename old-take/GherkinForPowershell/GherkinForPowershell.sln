@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2013
+VisualStudioVersion = 12.0.31101.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{F973BC7D-FD62-4FF0-847C-AB27A7D8B510}"
+	ProjectSection(SolutionItems) = preProject
+		Run-GherkinScenarios.ps1 = Run-GherkinScenarios.ps1
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Features", "Features", "{3A175DC3-20FA-4962-AFDE-618C0BFD6499}"
+	ProjectSection(SolutionItems) = preProject
+		Features\SingleScenarioWithoutBackground.feature = Features\SingleScenarioWithoutBackground.feature
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3A175DC3-20FA-4962-AFDE-618C0BFD6499} = {F973BC7D-FD62-4FF0-847C-AB27A7D8B510}
+	EndGlobalSection
+EndGlobal
