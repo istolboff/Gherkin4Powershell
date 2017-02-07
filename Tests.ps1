@@ -344,6 +344,36 @@ Scenario: s4
     (Hook 'AfterFeature'),
     (Hook 'AfterTestRun')
 
+    
+Running (Gherkin-Script @"
+Feature: f4
+Scenario: s4
+    Given I have these friends
+    | Friend Name | 
+    | Sam         |
+    | Mary        |
+    | John        |
+"@) `
+-illustrating 'Step with the single-column table parameter' | should result in invocation of `
+    (Hook 'BeforeTestRun'),
+    (Hook 'BeforeFeature' -withContext @{ Name = 'f4'; Description = $Null; Tags = $Null }),
+    (Hook 'BeforeScenario' -withContext @{ Name = 's4'; Description = $Null; Tags = $Null }),
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+    (Step `
+        -given 'I have these friends' `
+        -tableArgument @{ 
+            Header = ,'Friend Name'; 
+            Rows = @{ 'Friend Name' = 'Sam' },
+                   @{ 'Friend Name' = 'Mary' },
+                   @{ 'Friend Name' = 'John' }
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
+    (Hook 'AfterScenario'),
+    (Hook 'AfterFeature'),
+    (Hook 'AfterTestRun')
+
 
 Running (Gherkin-Script @"
 @Very @Complex
