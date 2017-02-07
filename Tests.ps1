@@ -432,3 +432,89 @@ Scenario: s4
     (Hook 'AfterScenario'),
     (Hook 'AfterFeature'),
     (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: f5
+Scenario: s5
+    Given I have these friends
+        | Friend Name | Age | Gender |
+        | Sam         | 45  | Male   |
+    And I have these friends
+        | Friend Name | Age | Gender |
+        | Ann         | 32  | Female |
+    And I have these friends
+        | Friend Name | Age | Gender |
+        | Tom         | 18  | Male   |
+    When I borrow 50 dollars from 
+        | Friend Name | Borrow date | 
+        | Sam         | 06/25/2017  | 
+    And I borrow 40 dollars from 
+        | Friend Name | Borrow date | 
+        | Tom         | 08/13/2016  | 
+    Then I should have only Ann left as a friend
+     But everything should be alright
+"@) `
+-illustrating 'Scenario with several steps in each Given/When/Then group' | should result in invocation of `
+    (Hook 'BeforeTestRun'),
+    (Hook 'BeforeFeature' -withContext @{ Name = 'f5'; Description = $Null; Tags = $Null }),
+    (Hook 'BeforeScenario' -withContext @{ Name = 's5'; Description = $Null; Tags = $Null }),
+    # Given-s I have these friends
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+    (Step `
+        -given 'I have these friends' `
+        -tableArgument @{ 
+            Header = 'Friend Name', 'Age', 'Gender'; 
+            Rows = ,@{ 'Friend Name' = 'Sam'; 'Age' = 45; 'Gender' = 'Male' }
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+    (Step `
+        -given 'I have these friends' `
+        -tableArgument @{ 
+            Header = 'Friend Name', 'Age', 'Gender'; 
+            Rows = ,@{ 'Friend Name' = 'Ann'; 'Age' = 32; 'Gender' = 'Female' } 
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+    (Step `
+        -given 'I have these friends' `
+        -tableArgument @{ 
+            Header = 'Friend Name', 'Age', 'Gender'; 
+            Rows = ,@{ 'Friend Name' = 'Tom'; 'Age' = 18; 'Gender' = 'Male' } 
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
+    # When-s I borrow X dollars from 
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+    (Step `
+        -when 'I borrow Argument(50) dollars from' `
+        -tableArgument @{ 
+            Header = 'Friend Name', 'Borrow date'; 
+            Rows = ,@{ 'Friend Name' = 'Sam'; 'Borrow date' = '06/25/2017' }
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+    (Step `
+        -when 'I borrow Argument(40) dollars from' `
+        -tableArgument @{ 
+            Header = 'Friend Name', 'Borrow date'; 
+            Rows = ,@{ 'Friend Name' = 'Tom'; 'Borrow date' = '08/13/2016' } 
+        }),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
+    #Then-s
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+    (Step -then 'I should have only Argument(Ann) left as a friend'),
+    (Hook 'AfterStep'),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+    (Step -then 'everything should be alright'),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
+    #end of steps
+    (Hook 'AfterScenario'),
+    (Hook 'AfterFeature'),
+    (Hook 'AfterTestRun')
