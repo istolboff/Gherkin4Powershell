@@ -557,7 +557,10 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
-$DocString = (Token $DocStringSeparator), (Optional (Repeat (Token $Other))), (Token $DocStringSeparator)
+$DocString = (Token $DocStringSeparator), 
+             (from_ parsedDocStringLine in (Optional (Repeat (Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))))), 
+             (Token $DocStringSeparator),
+             (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
 $Step_Arg = (One-Of $DataTable, $DocString)
 

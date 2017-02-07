@@ -101,7 +101,7 @@ function Hook($hookType, $withContext)
     @{ HookType = $hookType; Context = $withContext }
 }
 
-function Step([switch]$given, [switch]$when, [switch]$then, $stepText, $tableArgument)
+function Step([switch]$given, [switch]$when, [switch]$then, $stepText, $tableArgument, $pyStringArgument)
 {
     if ($given) 
     { 
@@ -120,7 +120,7 @@ function Step([switch]$given, [switch]$when, [switch]$then, $stepText, $tableArg
         throw 'Step(): neither one of Given/When/Then specified.' 
     }    
 
-    @{ StepType = $stepType; StepText = $stepText; TableArgument = $tableArgument }
+    @{ StepType = $stepType; StepText = $stepText; TableArgument = $tableArgument; PyStringArgument = $pyStringArgument }
 }
 
 Remove-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ErrorAction SilentlyContinue
@@ -193,6 +193,12 @@ When_ ([regex]'(\d+) plus (\d+) gives (\d+)') {
 When_ ([regex]'I borrow (\d+) dollars from') {
     param ($borrowedAmount, $borrowedFromPersonsTable)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "I borrow Argument($borrowedAmount) dollars from" -tableArgument $borrowedFromPersonsTable)) })
+}
+
+When_ ('you hear (.*) eternal') {
+    param ($article, $wordingPyString)
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "you hear Argument($article) eternal" -pyStringArgument $wordingPyString)) })
+
 }
 
 Then_ ([regex]'everything should be alright') {
@@ -515,6 +521,38 @@ Scenario: s5
     (Hook 'AfterStep'),
     (Hook 'AfterScenarioBlock'),
     #end of steps
+    (Hook 'AfterScenario'),
+    (Hook 'AfterFeature'),
+    (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: f6
+Scenario: s6
+    When you hear the eternal 
+        """
+        To be or not to be,
+        That is the question!
+        """
+    Then everything should be alright
+"@) `
+-illustrating 'Scenario with single step with one parameter' | should result in invocation of `
+    (Hook 'BeforeTestRun'),
+    (Hook 'BeforeFeature' -withContext @{ Name = 'f6'; Description = $Null; Tags = $Null }),
+    (Hook 'BeforeScenario' -withContext @{ Name = 's6'; Description = $Null; Tags = $Null }),
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+    (Step -when 'you hear Argument(the) eternal' -pyStringArgument @"
+To be or not to be,
+That is the question!
+"@),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
+    (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+    (Step -then 'everything should be alright'),
+    (Hook 'AfterStep'),
+    (Hook 'AfterScenarioBlock'),
     (Hook 'AfterScenario'),
     (Hook 'AfterFeature'),
     (Hook 'AfterTestRun')
