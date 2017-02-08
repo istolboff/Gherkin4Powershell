@@ -792,14 +792,47 @@ filter Run-ScenarioBlock
     Invoke-GherkinHooks -hookType TeardownScenarioBlock -hookArgument $currentBlock.BlockType
 }
 
+function IsNull-OrEmptyArray($collection)
+{
+    $collection -eq $Null -or ($collection -is [array] -and $collection.Length -eq 0)
+}
+
+function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
+{
+    Verify-That -condition ($backgroundBlocks -eq $Null -or $backgroundBlocks -is [array]) -message '-backgroundBlocks is not an array'
+    Verify-That -condition ($scenarioBlocks  -eq $Null -or $scenarioBlocks -is [array]) -message '-scenarioBlocks is not an array'
+
+    if (IsNull-OrEmptyArray $backgroundBlocks)
+    {
+        return $scenarioBlocks
+    }
+
+    if (IsNull-OrEmptyArray $scenarioBlocks)
+    {
+        return $backgroundBlocks
+    }
+
+    $lastBackgroundBlockIsOfSameTypeAsFirstScenarioBlock = ($backgroundBlocks[-1].BlockType -eq $scenarioBlocks[0].BlockType)
+    if (-Not $lastBackgroundBlockIsOfSameTypeAsFirstScenarioBlock)
+    {
+        return @($backgroundBlocks) + @($scenarioBlocks)
+    }
+
+    $joinedLastBackgroundBlockAndFirstScenarioBlockSteps = @($backgroundBlocks[-1].Steps) + @($scenarioBlocks[0].Steps)
+    $result = $backgroundBlocks[0..(0, ($backgroundBlocks.Length - 2) | Measure -Maximum).Maximum]
+    $result += @(@{ BlockType = $backgroundBlocks[-1].BlockType; Steps = $joinedLastBackgroundBlockAndFirstScenarioBlockSteps })
+    $result += @($scenarioBlocks[1..($scenarioBlocks.Length - 1)])
+
+    return @($result)
+}
+
 function Run-SingleScenario($backgroundBlocks)
 {
     process
     {
         $scenario = $_
         Invoke-GherkinHooks -hookType SetupScenario -hookArgument $scenario
-        @($backgroundBlocks | Except-Nulls) | Run-ScenarioBlock
-        @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
+        Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
         Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
     }
 }
@@ -807,7 +840,7 @@ function Run-SingleScenario($backgroundBlocks)
 function Run-FeatureScenarios($featureFile, $feature)
 {
     Invoke-GherkinHooks -hookType SetupFeature -hookArgument $feature
-    @($feature.Scenarios | Except-Nulls) | Run-SingleScenario -backgroundBlocks $feature.BackgroundBlocks 
+    @($feature.Scenarios | Except-Nulls) | Run-SingleScenario -backgroundBlocks $feature.Background.StepBlocks
     Invoke-GherkinHooks -hookType TeardownFeature -hookArgument $feature
 }
 #endregion

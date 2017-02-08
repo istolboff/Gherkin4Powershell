@@ -1,4 +1,6 @@
-﻿$scriptFolder = Split-Path -Parent $MyInvocation.MyCommand.Definition
+﻿param ([string] $logToFolder)
+
+$scriptFolder = Split-Path -Parent $MyInvocation.MyCommand.Definition
 . (Join-Path -Path $scriptFolder -ChildPath 'Define-GherkinHooksApi.ps1')
 
 trap { 
@@ -34,12 +36,15 @@ function Running($scriptContent, $illustrating)
             throw "Test case '$illustrating': feature file parsing failed."
         }
 
-        if ([TestRunContext]::Current.HasValue('InvocationHistory'))
+        if ($logToFolder -ne $Null)
         {
-            return @{ TestDescription = $illustrating; InvocationHistory = ([TestRunContext]::Current.GetValue('InvocationHistory')) }
+            $parsedScenarios.Feature | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ParsedFeature.json')
         }
-        
-        return @{ TestDescription = $illustrating; InvocationHistory = @() }
+
+        return @{ 
+            TestDescription = $illustrating; 
+            InvocationHistory = @(if ([TestRunContext]::Current.HasValue('InvocationHistory')) { [TestRunContext]::Current.GetValue('InvocationHistory') })
+        }
     }
     finally 
     {
@@ -71,8 +76,15 @@ function Convert-ToXmlLines($complexObject)
 
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
+    if ($logToFolder -ne $Null)
+    {
+        $referenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
+        $differenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
+    }
+
     $referenceLines = Convert-ToXmlLines $referenceObject
     $differenceLines = Convert-ToXmlLines $differenceObject
+
     Compare-Object -ReferenceObject @($referenceLines) -DifferenceObject @($differenceLines)
 }
 
@@ -556,3 +568,107 @@ That is the question!
     (Hook 'AfterScenario'),
     (Hook 'AfterFeature'),
     (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: f10
+Background: 
+    Given I have these friends
+        | Friend Name | Age | Gender |
+        | Sam         | 45  | Male   |
+    And I have these friends
+        | Friend Name | Age | Gender |
+        | Ann         | 32  | Female |
+    And I have these friends
+        | Friend Name | Age | Gender |
+        | Tom         | 18  | Male   |
+    When I borrow 50 dollars from 
+        | Friend Name | Borrow date | 
+        | Sam         | 06/25/2017  | 
+Scenario: s7-1
+    When I borrow 40 dollars from 
+        | Friend Name | Borrow date | 
+        | Tom         | 08/13/2016  | 
+    Then I should have only Ann left as a friend
+     But everything should be alright
+Scenario: s7-2
+    Given I have these friends
+        | Friend Name | Age | Gender |
+        | Bob         | 64  | Male   |
+    When I borrow 60 dollars from 
+        | Friend Name | Borrow date | 
+        | Bob         | 11/05/2018  | 
+        | Ann         | 05/12/2015  |
+    Then I should have only Tom left as a friend
+     But everything should be alright
+"@)  `
+-illustrating 'Background gets applied to all Scenarios from the Feature' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'f10'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 's7-1'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Sam'; 'Age' = '45'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Ann'; 'Age' = '32'; 'Gender' = 'Female' } } ),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Age' = '18'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(50) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Sam'; 'Borrow date' = '06/25/2017' } }),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(40) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Borrow date' = '08/13/2016' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Ann) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 's7-2'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Sam'; 'Age' = '45'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Ann'; 'Age' = '32'; 'Gender' = 'Female' } } ),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Age' = '18'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(50) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Sam'; 'Borrow date' = '06/25/2017' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = ,@{ 'Friend Name' = 'Bob'; 'Age' = '64'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(60) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = @{ 'Friend Name' = 'Bob'; 'Borrow date' = '11/05/2018' }, @{ 'Friend Name' = 'Ann'; 'Borrow date' = '05/12/2015' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Tom) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
