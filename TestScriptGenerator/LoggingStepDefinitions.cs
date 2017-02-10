@@ -18,7 +18,7 @@ namespace TestScriptGenerator
         [AfterTestRun]
         public static void TeardownTestRun()
         {
-            Trace.WriteLine("(Hook 'AfterTestRun'),");
+            Trace.WriteLine("(Hook 'AfterTestRun')");
         }
 
         [BeforeFeature]

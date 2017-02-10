@@ -107,7 +107,7 @@ filter Trim-String
 
 function Log-Parsing($message)
 {
-    if ($logParsingToFile -ne $Null)
+    if (-Not [string]::IsNullOrEmpty($logParsingToFile))
     {
         $message | Out-File -FilePath $logParsingToFile -Append
     }
@@ -833,9 +833,14 @@ function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
         return @($backgroundBlocks) + @($scenarioBlocks)
     }
 
-    $joinedLastBackgroundBlockAndFirstScenarioBlockSteps = @($backgroundBlocks[-1].Steps) + @($scenarioBlocks[0].Steps)
-    $result = $backgroundBlocks[0..(0, ($backgroundBlocks.Length - 2) | Measure -Maximum).Maximum]
-    $result += @(@{ BlockType = $backgroundBlocks[-1].BlockType; Steps = $joinedLastBackgroundBlockAndFirstScenarioBlockSteps })
+    $result = @()
+    for ($i = 0; $i -lt $backgroundBlocks.Length - 1; $i++)
+    {
+        $result += @($backgroundBlocks[$i])
+    }
+
+    $joinedLastBackgroundBlockAndFirstScenarioBlockSteps = @($backgroundBlocks[$backgroundBlocks.Length - 1].Steps) + @($scenarioBlocks[0].Steps)
+    $result += @(@{ BlockType = $scenarioBlocks[0].BlockType; Steps = $joinedLastBackgroundBlockAndFirstScenarioBlockSteps })
     $result += @($scenarioBlocks[1..($scenarioBlocks.Length - 1)])
 
     return @($result)
@@ -943,7 +948,7 @@ function Run-FeatureScenarios($featureFile, $feature)
 
 Validate -parameters @( {$scenarioFiles} )
 
-if ($logParsingToFile -ne $Null -and (Test-Path $logParsingToFile))
+if ((-Not [string]::IsNullOrEmpty($logParsingToFile)) -and (Test-Path $logParsingToFile))
 {
     Remove-Item $logParsingToFile
 }
