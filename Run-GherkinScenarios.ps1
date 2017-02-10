@@ -1,6 +1,7 @@
 ﻿param (
     [string] $scenarioFiles,
-    [string] $cultureName = 'en-US')
+    [string] $cultureName = 'en-US',
+    [string] $logParsingToFile = $Null)
 
 trap { 
     if ($global:Error.Count -gt 0)
@@ -106,7 +107,10 @@ filter Trim-String
 
 function Log-Parsing($message)
 {
-#    Write-Host $message
+    if ($logParsingToFile -ne $Null)
+    {
+        $message | Out-File -FilePath $logParsingToFile -Append
+    }
 }
 
 function List-ScenarioFiles($scenarioFiles)
@@ -490,7 +494,7 @@ function Build-GherkinKeywordParsers($cultureName)
             Given = (One-Of ($localizedKeywords.Given));
             When = (One-Of ($localizedKeywords.When));
             Then = (One-Of ($localizedKeywords.Then));
-            Examples = (One-Of ($localizedKeywords.Examples));
+            Examples = (One-Of ($localizedKeywords.Examples | ForEach-Object { $_ + ':' }));
             And = (One-Of ($localizedKeywords.And));
             But = (One-Of ($localizedKeywords.But))
         }
@@ -566,7 +570,7 @@ $Step_Arg = (One-Of $DataTable, $DocString)
 
 $StepLine = One-Of (Gherkin-LineParser $GherkinKeywordParsers.Given), (Gherkin-LineParser $GherkinKeywordParsers.When), (Gherkin-LineParser $GherkinKeywordParsers.Then), (Gherkin-LineParser $GherkinKeywordParsers.And), (Gherkin-LineParser $GherkinKeywordParsers.But)
 
-$Step = (Attach-Debugger 'foo'), (Token $StepLine), (Optional $Step_Arg)
+$Step = (Token $StepLine), (Optional $Step_Arg)
 
 function SingleStep-Parser($firstStepLineParser)
 {
@@ -609,25 +613,31 @@ $Scenario = (from_ scenarioTags in (Optional $Tags)),
             (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))), 
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
-            (select_ { @{ Name = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks } })
+            (select_ { @{ Name = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
-$Examples_Description = $DescriptionHelper
+$ExamplesDefinition = (from_ examplesTags in (Optional $Tags)), 
+                      (Token (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
+                      (from_ examplesDescription in $DescriptionHelper),
+                      (from_ examplesTable in (Optional $DataTable)),
+                      (select_ { @{
+                                    Tags = $examplesTags;
+                                    Description = $examplesDescription;
+                                    ExampleVariableNames = $examplesTable.Header;
+                                    ExamplesData = $examplesTable.Rows
+                                    }})
 
-$Examples_Table = Repeat (Token $TableRow)
 
-$ExamplesLine = Gherkin-LineParser $GherkinKeywordParsers.Examples
-
-$Examples = (Token $ExamplesLine), $Examples_Description, (Optional $Examples_Table)
-
-$Examples_Definition = (Optional $Tags), $Examples
-
-$ScenarioOutline_Description = $DescriptionHelper
-
-$ScenarioOutline_Step = $Step
-
-$ScenarioOutlineLine = Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline
-
-$ScenarioOutline = (Token $ScenarioOutlineLine), $ScenarioOutline_Description, (Optional (Repeat $ScenarioOutline_Step)), (Optional (Repeat $Examples_Definition))
+$ScenarioOutline = (from_ scenarioOutlineName in (Token (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
+                   (from_ scenarioOutlineDescription in $DescriptionHelper),
+                   (from_ scenarioOutlineStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
+                   (from_ scenarioOutlineExamples in (Optional (Repeat $ExamplesDefinition))),
+                   (select_ { @{
+                                Name = $scenarioOutlineName;
+                                Description = $scenarioOutlineDescription;
+                                StepBlocks = $scenarioOutlineStepBlocks;
+                                SetsOfExamples = $scenarioOutlineExamples;
+                                IsScenarioOutline = $True
+                               }})
 
 $Feature_Header = (from_ featureTags in (Optional $Tags)), 
                   (from_ featureName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Feature))), 
@@ -637,7 +647,12 @@ $Feature_Header = (from_ featureTags in (Optional $Tags)),
 $Feature = (from_ featureHeader in $Feature_Header), 
            (from_ parsedBackground in (Optional $Background)), 
            (from_ scenarios in (Optional (Repeat (One-Of $Scenario, $ScenarioOutline)))),
-           (select_ { @{ Name = $featureHeader.Name; Description = $featureHeader.Description; Tags = $featureHeader.Tags; Background = $parsedBackground; Scenarios = $scenarios } })
+           (select_ { @{ 
+                        Name = $featureHeader.Name; 
+                        Description = $featureHeader.Description; 
+                        Tags = $featureHeader.Tags; 
+                        Background = $parsedBackground; 
+                        Scenarios = $scenarios } })
 
 $GherkinDocument = (from_ parsedFeature in (Optional $Feature)),
                    (EndOfContent),
@@ -837,15 +852,101 @@ function Run-SingleScenario($backgroundBlocks)
     }
 }
 
+function Run-SingleScenarioOrScenarioOutline($backgroundBlocks)
+{
+    process
+    {
+        $scenario = $_
+        if ($scenario.IsScenarioOutline)
+        {
+            $scenario.SetsOfExamples | `
+                ForEach-Object {
+                    $currentSetOfExamples = $_
+                    $firstColumnName = $currentSetOfExamples.ExampleVariableNames[0]
+
+                    $currentSetOfExamples.ExamplesData | `
+                        ForEach-Object { 
+                            $currentExample = $_
+
+                            $scenarioBlocks = $scenario.StepBlocks | `
+                                ForEach-Object {
+                                    $currentStepBlock = $_
+                                    $steps = $currentStepBlock.Steps | `
+                                        ForEach-Object {
+                                            [string] $stepText = $_.StepText
+                                            $extraArgument = $_.ExtraArgument
+
+                                            foreach ($columnName in $currentSetOfExamples.ExampleVariableNames)
+                                            {
+                                                $exampleColumnValue = $currentExample[$columnName]
+                                                $stepText = $stepText.Replace("<$columnName>", $exampleColumnValue)
+
+                                                if ($extraArgument -ne $Null)
+                                                {
+                                                    if ($extraArgument -is [string])
+                                                    {
+                                                        $extraArgument = $extraArgument.Replace("<$columnName>", $exampleColumnValue)
+                                                    }
+                                                    else
+                                                    {
+                                                        $extraArgument = @{ 
+                                                            Header = @($extraArgument.Header | ForEach-Object { $_.Replace("<$columnName>", $exampleColumnValue) }); 
+                                                            Rows = @($extraArgument.Rows | `
+                                                                        ForEach-Object {
+                                                                            $originalRow = $_
+                                                                            $modifiedRow = @{}
+                                                                            $originalRow.GetEnumerator() | `
+                                                                                ForEach-Object { 
+                                                                                    $originalKey = $_.Key
+                                                                                    $originalValue = $_.Value
+                                                                                    $modifiedRow.Add($originalKey.Replace("<$columnName>", $exampleColumnValue), $originalValue.Replace("<$columnName>", $exampleColumnValue)) 
+                                                                                }
+
+                                                                            $modifiedRow
+                                                                        }) 
+                                                        } 
+                                                    }
+                                                }
+                                            }
+
+                                            @{ StepText = $stepText; ExtraArgument = $extraArgument }
+                                        }
+
+                                    @{ BlockType = $currentStepBlock.BlockType; Steps = @($steps) }
+                                }
+
+                            @{ 
+                                Name = $scenario.Name; 
+                                Description = $currentSetOfExamples.Description; 
+                                Tags = $currentSetOfExamples.Tags; 
+                                ScenarioBlocks = @($scenarioBlocks); 
+                                IsScenarioOutline = $False 
+                            } 
+                        } | `
+                        Run-SingleScenario -backgroundBlocks $backgroundBlocks
+                }
+        }
+        else
+        {
+            $scenario | Run-SingleScenario -backgroundBlocks $backgroundBlocks
+        }
+    }
+}
+
 function Run-FeatureScenarios($featureFile, $feature)
 {
     Invoke-GherkinHooks -hookType SetupFeature -hookArgument $feature
-    @($feature.Scenarios | Except-Nulls) | Run-SingleScenario -backgroundBlocks $feature.Background.StepBlocks
+    @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -backgroundBlocks $feature.Background.StepBlocks
     Invoke-GherkinHooks -hookType TeardownFeature -hookArgument $feature
 }
 #endregion
 
 Validate -parameters @( {$scenarioFiles} )
+
+if ($logParsingToFile -ne $Null -and (Test-Path $logParsingToFile))
+{
+    Remove-Item $logParsingToFile
+}
 
 $parsedScenarios = @(List-ScenarioFiles $scenarioFiles | ForEach-Object { 
         $scriptFilePath = $_

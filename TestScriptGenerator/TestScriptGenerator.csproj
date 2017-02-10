@@ -59,6 +59,11 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>f10.feature</DependentUpon>
     </Compile>
+    <Compile Include="Features\f11.feature.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>f11.feature</DependentUpon>
+    </Compile>
     <Compile Include="LoggingStepDefinitions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -67,6 +72,10 @@
     <None Include="Features\f10.feature">
       <Generator>SpecFlowSingleFileGenerator</Generator>
       <LastGenOutput>f10.feature.cs</LastGenOutput>
+    </None>
+    <None Include="Features\f11.feature">
+      <Generator>SpecFlowSingleFileGenerator</Generator>
+      <LastGenOutput>f11.feature.cs</LastGenOutput>
     </None>
     <None Include="packages.config" />
   </ItemGroup>

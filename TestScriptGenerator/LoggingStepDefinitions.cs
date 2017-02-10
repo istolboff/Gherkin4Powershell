@@ -18,7 +18,7 @@ namespace TestScriptGenerator
         [AfterTestRun]
         public static void TeardownTestRun()
         {
-            Trace.WriteLine("(Hook 'AfterTestRun')");
+            Trace.WriteLine("(Hook 'AfterTestRun'),");
         }
 
         [BeforeFeature]
@@ -30,13 +30,13 @@ namespace TestScriptGenerator
         [AfterFeature]
         public static void TeardownFeature()
         {
-            Trace.WriteLine("(Hook 'AfterFeature')");
+            Trace.WriteLine("(Hook 'AfterFeature'),");
         }
 
         [BeforeScenario]
         public static void SetupScenario()
         {
-            Trace.WriteLine($"(Hook 'BeforeScenario' -withContext @{{ Name = '{ScenarioContext.Current.ScenarioInfo.Title}'; Description = $Null; Tags = {DescribeTags(ScenarioContext.Current.ScenarioInfo.Tags)} }})");
+            Trace.WriteLine($"(Hook 'BeforeScenario' -withContext @{{ Name = '{ScenarioContext.Current.ScenarioInfo.Title}'; Description = $Null; Tags = {DescribeTags(ScenarioContext.Current.ScenarioInfo.Tags)} }}),");
         }
 
         [AfterScenario]
@@ -77,6 +77,19 @@ namespace TestScriptGenerator
             Trace.WriteLine($"(Step -given 'I have these friends' -tableArgument {DescribeTableData(table)} ),");
         }
 
+        [Given(@"Call me (.*)")]
+        public static void CallMeLikeThis(string name)
+        {
+            Trace.WriteLine($"(Step -given 'Call me Argument({name})'),");
+        }
+
+
+        [When(@"(\d+) plus (\d+) gives (\d+)")]
+        public static void SomePlusSomeGivesSome(int first, int second, int sum)
+        {
+            Trace.WriteLine($"(Step -when 'Argument({first}) plus Argument({second}) gives Argument({sum})'),");
+        }
+
         [When(@"I borrow (.*) dollars from")]
         public static void BorrowDollarsFrom(int amount, Table table)
         {
@@ -84,7 +97,7 @@ namespace TestScriptGenerator
         }
 
         [Then(@"I should have only (.*) left as a friend")]
-        public static void ShouldHaveOnlyAnnLeftAsAFriend(string friendName)
+        public static void ShouldHaveOnlyFriend(string friendName)
         {
             Trace.WriteLine($"(Step -then 'I should have only Argument({friendName}) left as a friend'),");
         }
@@ -98,7 +111,7 @@ namespace TestScriptGenerator
         private static string DescribeTags(IReadOnlyCollection<string> tagNames)
         {
             var tags = tagNames.Count == 0
-                ? "$Null"
+                ? "@()"
                 : string.Join(",", ScenarioContext.Current.ScenarioInfo.Tags);
             return tags;
         }

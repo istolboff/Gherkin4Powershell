@@ -30,7 +30,11 @@ function Running($scriptContent, $illustrating)
     try
     {
         $temporaryFilePath = Save-ContentToTemporaryFile $scriptContent
-        $parsedScenarios = & $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') -scenarioFiles $temporaryFilePath
+        $parsingLogFile = if ($logToFolder -ne $Null) { Join-Path $logToFolder 'parser.log' }
+        $parsedScenarios = & $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `
+                                -scenarioFiles $temporaryFilePath `
+                                -cultureName 'en-US' `
+                                -logParsingToFile $parsingLogFile
         if ($parsedScenarios.Feature -eq $Null -and $scriptContent -ne '')
         {
             throw "Test case '$illustrating': feature file parsing failed."
@@ -667,6 +671,86 @@ Scenario: s7-2
 (Hook 'AfterStep'),
 (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
 (Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: f11
+Scenario Outline: s11
+    Given Call me <First Customer Name>
+    And Call me <Second Customer Name>
+    When <Number-1> plus <Number-2> gives <SumOfNumbers>
+    Then I should have only <Second Customer Name> left as a friend
+Examples:
+     | First Customer Name | Second Customer Name | Number-1 | Number-2 | SumOfNumbers | 
+     | Ismael              | Bob                  | 1001     | 2002     | 42           | 
+     | John                | James                | 33       | 123      | 1923         | 
+     | John Donn           | Samuel L. Jackson    | 666      | 1000     | 1000000      |  
+"@) `
+-illustrating 'basic Scenario Outline' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'f11'; Description = $Null; Tags = $Null }),
+(Hook 'BeforeScenario' -withContext @{ Name = 's11'; Description = $Null; Tags = $Null }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Ismael)'),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Bob)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'Argument(1001) plus Argument(2002) gives Argument(42)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Bob) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 's11'; Description = $Null; Tags = $Null }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(John Donn)'),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Samuel L. Jackson)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'Argument(666) plus Argument(1000) gives Argument(1000000)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Samuel L. Jackson) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 's11'; Description = $Null; Tags = $Null }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(John)'),
+(Hook 'AfterStep'),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(James)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'Argument(33) plus Argument(123) gives Argument(1923)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(James) left as a friend'),
 (Hook 'AfterStep'),
 (Hook 'AfterScenarioBlock'),
 (Hook 'AfterScenario'),
