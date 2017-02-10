@@ -191,37 +191,37 @@ AfterStep {
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterStep')) })
 }
 
-Given_ ([regex]'Call me (.*)') {
+Given ([regex]'Call me (.*)') {
     param ($myName)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -given "Call me Argument($myName)")) })
 }
 
-Given_ ([regex]'I have these friends') {
+Given ([regex]'I have these friends') {
     param ($friendsTable)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -given "I have these friends" -tableArgument $friendsTable)) })
 }
 
-When_ ([regex]'(\d+) plus (\d+) gives (\d+)') {
+When ([regex]'(\d+) plus (\d+) gives (\d+)') {
     param ($firstAddend, $secondAddend, $sum)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "Argument($firstAddend) plus Argument($secondAddend) gives Argument($sum)")) })
 }
 
-When_ ([regex]'I borrow (\d+) dollars from') {
+When ([regex]'I borrow (\d+) dollars from') {
     param ($borrowedAmount, $borrowedFromPersonsTable)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "I borrow Argument($borrowedAmount) dollars from" -tableArgument $borrowedFromPersonsTable)) })
 }
 
-When_ ('you hear (.*) eternal') {
+When ('you hear (.*) eternal') {
     param ($article, $wordingPyString)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "you hear Argument($article) eternal" -pyStringArgument $wordingPyString)) })
 
 }
 
-Then_ ([regex]'everything should be alright') {
+Then ([regex]'everything should be alright') {
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -then 'everything should be alright')) })
 }
 
-Then_ ([regex]'I should have only (.*) left as a friend') {
+Then ([regex]'I should have only (.*) left as a friend') {
     param ($friendName)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -then "I should have only Argument($friendName) left as a friend")) })
 }

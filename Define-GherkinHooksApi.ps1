@@ -118,17 +118,17 @@ function Add-GherkinStepDefinition($stepType, [regex]$stepPattern, [scriptblock]
     $allStepDefinitionsOfType.Add(@{ StepPattern = $stepPattern; StepScript = $stepScript }) | Out-Null
 }
 
-function Given_([regex]$stepPattern, [scriptblock] $stepScript)
+function Given([regex]$stepPattern, [scriptblock] $stepScript)
 {
     Add-GherkinStepDefinition -stepType $StepTypeEnum.Given -stepPattern $stepPattern -stepScript $stepScript
 }
 
-function When_([regex]$stepPattern, [scriptblock] $stepScript)
+function When([regex]$stepPattern, [scriptblock] $stepScript)
 {
     Add-GherkinStepDefinition -stepType $StepTypeEnum.When -stepPattern $stepPattern -stepScript $stepScript
 }
 
-function Then_([regex]$stepPattern, [scriptblock] $stepScript)
+function Then([regex]$stepPattern, [scriptblock] $stepScript)
 {
     Add-GherkinStepDefinition -stepType $StepTypeEnum.Then -stepPattern $stepPattern -stepScript $stepScript
 }
