@@ -868,3 +868,78 @@ Scenario: s12-2
 (Hook 'AfterScenario'),
 (Hook 'AfterFeature'),
 (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: f13
+Scenario Outline: s13
+    Given I have these friends
+        | Friend Name | Age | Gender |
+        | Sam         | 45  | Male   |
+        | Tom         | 18  | Male   |
+    When I borrow <Amount> dollars from 
+        | Friend Name | Borrow date | 
+        | Tom         | 08/13/2016  | 
+    Then I should have only Sam left as a friend
+Examples:
+     | Amount  |
+     | 1923    |
+     | 1000000 |
+     | 42      |
+"@) `
+-illustrating 'Scenario Outline with Table data' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'f13'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 's13'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = @{ 'Friend Name' = 'Sam'; 'Age' = '45'; 'Gender' = 'Male' }, @{ 'Friend Name' = 'Tom'; 'Age' = '18'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(1923) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Borrow date' = '08/13/2016' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Sam) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 's13'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = @{ 'Friend Name' = 'Sam'; 'Age' = '45'; 'Gender' = 'Male' }, @{ 'Friend Name' = 'Tom'; 'Age' = '18'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(1000000) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Borrow date' = '08/13/2016' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Sam) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 's13'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'I have these friends' -tableArgument @{ Header = 'Friend Name', 'Age', 'Gender'; Rows = @{ 'Friend Name' = 'Sam'; 'Age' = '45'; 'Gender' = 'Male' }, @{ 'Friend Name' = 'Tom'; 'Age' = '18'; 'Gender' = 'Male' } } ),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+(Step -when 'I borrow Argument(42) dollars from' -tableArgument @{ Header = 'Friend Name', 'Borrow date'; Rows = ,@{ 'Friend Name' = 'Tom'; 'Borrow date' = '08/13/2016' } }),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'I should have only Argument(Sam) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
