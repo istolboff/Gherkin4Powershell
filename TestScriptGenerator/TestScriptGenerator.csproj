@@ -74,6 +74,11 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>f13.feature</DependentUpon>
     </Compile>
+    <Compile Include="Features\f14.feature.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>f14.feature</DependentUpon>
+    </Compile>
     <Compile Include="LoggingStepDefinitions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -94,6 +99,10 @@
     <None Include="Features\f13.feature">
       <Generator>SpecFlowSingleFileGenerator</Generator>
       <LastGenOutput>f13.feature.cs</LastGenOutput>
+    </None>
+    <None Include="Features\f14.feature">
+      <Generator>SpecFlowSingleFileGenerator</Generator>
+      <LastGenOutput>f14.feature.cs</LastGenOutput>
     </None>
     <None Include="packages.config" />
   </ItemGroup>
