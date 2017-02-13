@@ -214,7 +214,6 @@ When ([regex]'I borrow (\d+) dollars from') {
 When ('you hear (.*) eternal') {
     param ($article, $wordingPyString)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "you hear Argument($article) eternal" -pyStringArgument $wordingPyString)) })
-
 }
 
 Then ([regex]'everything should be alright') {

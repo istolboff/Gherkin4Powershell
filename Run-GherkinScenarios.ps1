@@ -23,6 +23,9 @@ trap {
     continue 
 }
 
+$totalScenarios = 0
+$succeededScenarios = 0
+
 #region class TextLine
 function Build-TextLine([string] $chars, [int] $offset)
 {
@@ -850,10 +853,20 @@ function Run-SingleScenario($backgroundBlocks)
 {
     process
     {
-        $scenario = $_
-        Invoke-GherkinHooks -hookType SetupScenario -hookArgument $scenario
-        Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
-        Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
+        $script:totalScenarios++
+        try
+        {
+            $scenario = $_
+            Invoke-GherkinHooks -hookType SetupScenario -hookArgument $scenario
+            Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
+            Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
+            $script:succeededScenarios++
+            Write-Host "$($scenario.Name) succeeded."
+        }
+        catch
+        {
+            Write-Host "$($scenario.Name) failed."
+        }
     }
 }
 
@@ -968,5 +981,7 @@ if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $parse
     $parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature }
     Invoke-GherkinHooks -hookType TeardownTestRun
 }
+
+Write-Host "Total scenarios: $totalScenarios. Succeeded scenarios: $succeededScenarios, Failed scenarios: $($totalScenarios - $succeededScenarios)"
 
 return $parsedScenarios 
