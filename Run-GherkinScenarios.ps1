@@ -821,6 +821,7 @@ function Run-ScenarioStep($stepType)
 filter Run-ScenarioBlock
 {
     $currentBlock = $_
+    [ScenarioContext]::Current.CurrentScenarioBlock = $currentBlock.BlockType
     Invoke-GherkinHooks -hookType SetupScenarioBlock -hookArgument $currentBlock.BlockType
     $currentBlock.Steps | Run-ScenarioStep $currentBlock.BlockType
     Invoke-GherkinHooks -hookType TeardownScenarioBlock -hookArgument $currentBlock.BlockType
