@@ -1036,7 +1036,7 @@ Running (Gherkin-Script @"
 Feature: 
 @tag-1
 Scenario: Scenario with tag-1
-	Then everything should be alright
+	Given Call me Ishmael
 @tag-2
 Scenario: Scenario with tag-2
 	Then everything should be alright
@@ -1048,6 +1048,29 @@ Scenario: Scenario with tag-2
 (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
 (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
 (Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: 
+@tag-1
+Scenario: Scenario with tag-1
+	Given Call me Ishmael
+@tag-2
+Scenario: Scenario with tag-2
+	Then everything should be alright
+"@) -tags '~@tag-2' `
+-illustrating 'Using Run-GherkinScenarios''s parameter $tags: single tag, exclusion' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = ''; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Scenario with tag-1'; Description = $Null; Tags = @('tag-1') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Ishmael)'),
 (Hook 'AfterStep'),
 (Hook 'AfterScenarioBlock'),
 (Hook 'AfterScenario'),

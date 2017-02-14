@@ -880,8 +880,17 @@ function Scenario-ShouldBeIgnoredAccordingToItsTags($scenarioTags)
         return $False
     }
 
-    $requiredTagsAndScenarioTagsIntersection = @( @($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and ($scenarioTags -contains $_.Trim(@('@', '~'))) } )
-    return $requiredTagsAndScenarioTagsIntersection.Length -eq 0
+    $tagsThatMustBePresent = @(@($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('@') })
+    $tagsThatMustBeAbsent = @(@($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('~@') })
+
+    $tagsThatMustBePresentAndScenarioTagsIntersection = @( $tagsThatMustBePresent | Where { $scenarioTags -contains $_.Trim(@('@', '~')) } )
+    $tagsThatMustBeAbsentAndScenarioTagsIntersection = @( $tagsThatMustBeAbsent | Where { $scenarioTags -contains $_.Trim(@('@', '~')) } )
+
+    $scenarioShouldBeExecuted = `
+        (($tagsThatMustBePresent.Length -eq 0) -or ($tagsThatMustBePresentAndScenarioTagsIntersection.Length -gt 0)) -and `
+        (($tagsThatMustBeAbsent.Length -eq 0) -or ($tagsThatMustBeAbsentAndScenarioTagsIntersection.Length -eq 0))
+
+    return (-Not $scenarioShouldBeExecuted)
 }
 
 function Run-SingleScenario($featureTags, $backgroundBlocks)
