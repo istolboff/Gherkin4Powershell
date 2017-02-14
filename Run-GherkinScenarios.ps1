@@ -1,5 +1,6 @@
 ﻿param (
     [string] $scenarioFiles,
+    [string] $tags = $Null,
     [string] $cultureName = 'en-US',
     [string] $logParsingToFile = $Null)
 
@@ -523,7 +524,7 @@ $TagLine = (from_ firstTagName in ([regex]'\s*@(\S+)')),
            (from_ theOtherTagNames in (Optional (Repeat ([regex]'\s+@(\S+)')))),
            (select_ { @($firstTagName) + @($theOtherTagNames | Except-Nulls) })
 
-$Tags = (from_ tagNames in (Repeat (Token $TagLine))), 
+$TagsParser = (from_ tagNames in (Repeat (Token $TagLine))), 
         (select_ { @($tagNames | ForEach-Object { $_ }) })
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
@@ -608,13 +609,13 @@ $Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywor
               (from_ backgroundStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
-$Scenario = (from_ scenarioTags in (Optional $Tags)), 
+$Scenario = (from_ scenarioTags in (Optional $TagsParser)), 
             (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))), 
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
             (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
-$ExamplesDefinition = (from_ examplesTags in (Optional $Tags)), 
+$ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)), 
                       (Token (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
                       (from_ examplesDescription in $DescriptionHelper),
                       (from_ examplesTable in (Optional $DataTable)),
@@ -638,7 +639,7 @@ $ScenarioOutline = (from_ scenarioOutlineName in (Token (Gherkin-LineParser $Ghe
                                 IsScenarioOutline = $True
                                }})
 
-$Feature_Header = (from_ featureTags in (Optional $Tags)), 
+$Feature_Header = (from_ featureTags in (Optional $TagsParser)), 
                   (from_ featureName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Feature))), 
                   (from_ featureDescription in $DescriptionHelper),
                   (select_ { @{ Name = $featureName; Description = $featureDescription; Tags = $featureTags } })
@@ -872,6 +873,17 @@ function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
     return @($result)
 }
 
+function Scenario-ShouldBeIgnoredAccordingToItsTags($scenarioTags)
+{
+    if ([string]::IsNullOrEmpty($tags))
+    {
+        return $False
+    }
+
+    $requiredTagsAndScenarioTagsIntersection = @( @($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and ($scenarioTags -contains $_.Trim(@('@', '~'))) } )
+    return $requiredTagsAndScenarioTagsIntersection.Length -eq 0
+}
+
 function Run-SingleScenario($featureTags, $backgroundBlocks)
 {
     process
@@ -881,6 +893,10 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             $scenario = $_
 
             $scenario.Tags = @($featureTags | Except-Nulls) + @($scenario.Tags | Except-Nulls)
+            if (Scenario-ShouldBeIgnoredAccordingToItsTags -scenarioTags $scenario.Tags)
+            {
+                return
+            }
 
             [ScenarioContext]::Current = New-Object ScenarioContext
             [ScenarioContext]::Current.ScenarioInfo = $scenario 

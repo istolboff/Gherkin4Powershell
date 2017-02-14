@@ -25,7 +25,7 @@ function Save-ContentToTemporaryFile($scriptContent)
     return $temporaryFilePath 
 }
 
-function Running($scriptContent, $illustrating)
+function Running($scriptContent, $illustrating, $tags = $Null)
 {
     try
     {
@@ -33,6 +33,7 @@ function Running($scriptContent, $illustrating)
         $parsingLogFile = if (-Not [string]::IsNullOrEmpty($logToFolder)) { Join-Path $logToFolder 'parser.log' }
         $parsedScenarios = & $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `
                                 -scenarioFiles $temporaryFilePath `
+                                -tags $tags `
                                 -cultureName 'en-US' `
                                 -logParsingToFile $parsingLogFile
         if ($parsedScenarios.Feature -eq $Null -and $scriptContent -ne '')
@@ -1021,6 +1022,29 @@ Scenario: Scenario with its own tag
 (Hook 'AfterScenarioBlock'),
 (Hook 'AfterScenario'),
 (Hook 'BeforeScenario' -withContext @{ Name = 'Scenario with its own tag'; Description = $Null; Tags = @('FeatureLevelTag', 'ScenarioLevelTag') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: 
+@tag-1
+Scenario: Scenario with tag-1
+	Then everything should be alright
+@tag-2
+Scenario: Scenario with tag-2
+	Then everything should be alright
+"@) -tags '@tag-2' `
+-illustrating 'Using Run-GherkinScenarios''s parameter $tags: single tag, inclusion' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = ''; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Scenario with tag-2'; Description = $Null; Tags = @('tag-2') }),
 (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
 (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
 (Step -then 'everything should be alright'),
