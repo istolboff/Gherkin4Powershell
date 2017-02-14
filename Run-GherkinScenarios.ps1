@@ -664,6 +664,7 @@ function Setup-GherkinHookInfrastructure
     if (-Not ([System.Management.Automation.PSTypeName]'TestRunContext').Type)
     {
         Add-Type @'
+using System;
 using System.Collections.Generic;
 using System.Management.Automation;
 using System.Globalization;
@@ -710,6 +711,11 @@ public class ScenarioContext : GherkinContextBase
     public PSObject ScenarioInfo;
 
     public PSObject CurrentScenarioBlock;
+
+    public void Pending()
+    {
+        throw new NotSupportedException("Step definition is not properly implemented.");
+    }
 	
     public static ScenarioContext Current;
 }
@@ -882,11 +888,11 @@ function Run-SingleScenario($backgroundBlocks)
             Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
             Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
             $script:succeededScenarios++
-            Write-Host "$($scenario.Title) succeeded."
+            Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title)`t`tsucceeded."
         }
         catch
         {
-            Write-Host "$($scenario.Title) failed."
+            Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title)`t`tfailed."
         }
     }
 }
