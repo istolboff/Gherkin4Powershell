@@ -569,16 +569,12 @@ $DocString = (Token $DocStringSeparator),
              (Token $DocStringSeparator),
              (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
-$Step_Arg = (One-Of $DataTable, $DocString)
-
-$StepLine = One-Of (Gherkin-LineParser $GherkinKeywordParsers.Given), (Gherkin-LineParser $GherkinKeywordParsers.When), (Gherkin-LineParser $GherkinKeywordParsers.Then), (Gherkin-LineParser $GherkinKeywordParsers.And), (Gherkin-LineParser $GherkinKeywordParsers.But)
-
-$Step = (Token $StepLine), (Optional $Step_Arg)
+$StepArgument = (One-Of $DataTable, $DocString)
 
 function SingleStep-Parser($firstStepLineParser)
 {
     (from_  parsedStepText in $firstStepLineParser),
-    (from_ parsedStepExtraArgument in (Optional $Step_Arg)),
+    (from_ parsedStepExtraArgument in (Optional $StepArgument)),
     (select_ { @{ StepText = $parsedStepText; ExtraArgument = $parsedStepExtraArgument } })
 }
 
@@ -616,7 +612,7 @@ $Scenario = (from_ scenarioTags in (Optional $Tags)),
             (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))), 
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
-            (select_ { @{ Name = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
+            (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
 $ExamplesDefinition = (from_ examplesTags in (Optional $Tags)), 
                       (Token (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
@@ -635,7 +631,7 @@ $ScenarioOutline = (from_ scenarioOutlineName in (Token (Gherkin-LineParser $Ghe
                    (from_ scenarioOutlineStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
                    (from_ scenarioOutlineExamples in (Optional (Repeat $ExamplesDefinition))),
                    (select_ { @{
-                                Name = $scenarioOutlineName;
+                                Title = $scenarioOutlineName;
                                 Description = $scenarioOutlineDescription;
                                 StepBlocks = $scenarioOutlineStepBlocks;
                                 SetsOfExamples = $scenarioOutlineExamples;
@@ -651,7 +647,7 @@ $Feature = (from_ featureHeader in $Feature_Header),
            (from_ parsedBackground in (Optional $Background)), 
            (from_ scenarios in (Optional (Repeat (One-Of $Scenario, $ScenarioOutline)))),
            (select_ { @{ 
-                        Name = $featureHeader.Name; 
+                        Title = $featureHeader.Name; 
                         Description = $featureHeader.Description; 
                         Tags = $featureHeader.Tags; 
                         Background = $parsedBackground; 
@@ -670,8 +666,9 @@ function Setup-GherkinHookInfrastructure
         Add-Type @'
 using System.Collections.Generic;
 using System.Management.Automation;
+using System.Globalization;
 
-public class TestRunContext
+public abstract class GherkinContextBase
 {
     public bool HasValue(string name)
     {
@@ -693,9 +690,28 @@ public class TestRunContext
         modifyValue.Invoke(GetValue(name));
     }
 
-    public static TestRunContext Current;
-
     private readonly IDictionary<string, object> _values = new Dictionary<string, object>();
+}
+
+public class TestRunContext : GherkinContextBase
+{
+    public static TestRunContext Current;
+}
+
+public class FeatureContext : GherkinContextBase
+{
+	public PSObject FeatureInfo;
+	
+    public static FeatureContext Current;
+}
+
+public class ScenarioContext : GherkinContextBase
+{
+    public PSObject ScenarioInfo;
+
+    public PSObject CurrentScenarioBlock;
+	
+    public static ScenarioContext Current;
 }
 '@
     }
@@ -853,19 +869,23 @@ function Run-SingleScenario($backgroundBlocks)
 {
     process
     {
-        $script:totalScenarios++
         try
         {
             $scenario = $_
+
+            [ScenarioContext]::Current = New-Object ScenarioContext
+            [ScenarioContext]::Current.ScenarioInfo = $scenario 
+
+            $script:totalScenarios++
             Invoke-GherkinHooks -hookType SetupScenario -hookArgument $scenario
             Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
             Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
             $script:succeededScenarios++
-            Write-Host "$($scenario.Name) succeeded."
+            Write-Host "$($scenario.Title) succeeded."
         }
         catch
         {
-            Write-Host "$($scenario.Name) failed."
+            Write-Host "$($scenario.Title) failed."
         }
     }
 }
@@ -934,7 +954,7 @@ function Run-SingleScenarioOrScenarioOutline($backgroundBlocks)
                                 }
 
                             @{ 
-                                Name = $scenario.Name; 
+                                Title = $scenario.Title; 
                                 Description = $currentSetOfExamples.Description; 
                                 Tags = $currentSetOfExamples.Tags; 
                                 ScenarioBlocks = @($scenarioBlocks); 
@@ -953,6 +973,8 @@ function Run-SingleScenarioOrScenarioOutline($backgroundBlocks)
 
 function Run-FeatureScenarios($featureFile, $feature)
 {
+    [FeatureContext]::Current = New-Object FeatureContext
+    [FeatureContext]::Current.FeatureInfo = $feature
     Invoke-GherkinHooks -hookType SetupFeature -hookArgument $feature
     @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -backgroundBlocks $feature.Background.StepBlocks
     Invoke-GherkinHooks -hookType TeardownFeature -hookArgument $feature

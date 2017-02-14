@@ -153,7 +153,7 @@ AfterTestRun {
 
 BeforeFeature {
     param ($feature)
-    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeFeature' @{ Name = $feature.Name; Description = $feature.Description; Tags = @($feature.Tags | Except-Nulls) })) })
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeFeature' @{ Name = $feature.Title; Description = $feature.Description; Tags = @($feature.Tags | Except-Nulls) })) })
 }
 
 AfterFeature {
@@ -163,7 +163,7 @@ AfterFeature {
 
 BeforeScenario {
     param ($scenario)
-    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenario' @{ Name = $scenario.Name; Description = $scenario.Description; Tags = @($scenario.Tags | Except-Nulls) })) })
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenario' @{ Name = $scenario.Title; Description = $scenario.Description; Tags = @($scenario.Tags | Except-Nulls) })) })
 }
 
 AfterScenario {
