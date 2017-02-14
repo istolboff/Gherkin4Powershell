@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using TechTalk.SpecFlow;
@@ -110,10 +109,7 @@ namespace TestScriptGenerator
 
         private static string DescribeTags(IReadOnlyCollection<string> tagNames)
         {
-            var tags = tagNames.Count == 0
-                ? "@()"
-                : string.Join(",", ScenarioContext.Current.ScenarioInfo.Tags);
-            return tags;
+            return $"@({string.Join(",", tagNames.Select(tagName => "'" + tagName + "'"))})";
         }
 
         private static string DescribeTableData(Table table)

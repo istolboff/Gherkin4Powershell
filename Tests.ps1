@@ -40,7 +40,7 @@ function Running($scriptContent, $illustrating)
             throw "Test case '$illustrating': feature file parsing failed."
         }
 
-        if ($logToFolder -ne $Null -and ((Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue) -ne $Null))
+        if (-Not [string]::IsNullOrEmpty($logToFolder) -and ((Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue) -ne $Null))
         {
             $parsedScenarios.Feature | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ParsedFeature.json')
         }
@@ -80,7 +80,7 @@ function Convert-ToXmlLines($complexObject)
 
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
-    if ($logToFolder -ne $Null -and ((Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue) -ne $Null))
+    if (-Not [string]::IsNullOrEmpty($logToFolder) -and ((Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue) -ne $Null))
     {
         $referenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
         $differenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
@@ -106,7 +106,7 @@ function should
             return
         }
 
-        throw "Test $testDescription failed: Expected (<=) and actual(=>) invocation history differ: $($hooksDifferencies | Format-Table -Expand EnumOnly | Out-String)"
+        throw "Test '$testDescription' failed: Expected (<=) and actual(=>) invocation history differ: $($hooksDifferencies | Format-Table -Expand EnumOnly | Out-String)"
     }
 
     throw "Unknown arguments of 'should' in test '$testDescription': `$args=$args"
@@ -417,7 +417,7 @@ Scenario: s4
 -illustrating 'Scenario with steps that have Table parameters' | should result in invocation of `
     (Hook 'BeforeTestRun'),
     (Hook 'BeforeFeature' -withContext @{ Name = 'f4'; Description = ,'we aslo test how description of feature gets separated from first scenario tags'; Tags = 'Very', 'Complex' }),
-    (Hook 'BeforeScenario' -withContext @{ Name = 's4'; Description = ,'I am the scenario description'; Tags = 'IamATag', 'NotADescription' }),
+    (Hook 'BeforeScenario' -withContext @{ Name = 's4'; Description = ,'I am the scenario description'; Tags = 'Very', 'Complex', 'IamATag', 'NotADescription' }),
     # Given I have these friends
     (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
     (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
@@ -994,6 +994,36 @@ Examples:
 (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
 (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
 (Step -then 'I should have only Argument(Tom) left as a friend'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+@FeatureLevelTag
+Feature: Inheriting Feature Tags In Scenarios
+Scenario: Scenario without its own tags
+	Then everything should be alright
+@ScenarioLevelTag
+Scenario: Scenario with its own tag
+	Then everything should be alright
+"@) `
+-illustrating 'Propagating feature-level tags to the scenario level' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'Inheriting Feature Tags In Scenarios'; Description = $Null; Tags = @('FeatureLevelTag') }),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Scenario without its own tags'; Description = $Null; Tags = @('FeatureLevelTag') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Scenario with its own tag'; Description = $Null; Tags = @('FeatureLevelTag', 'ScenarioLevelTag') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
 (Hook 'AfterStep'),
 (Hook 'AfterScenarioBlock'),
 (Hook 'AfterScenario'),

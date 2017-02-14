@@ -872,13 +872,15 @@ function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
     return @($result)
 }
 
-function Run-SingleScenario($backgroundBlocks)
+function Run-SingleScenario($featureTags, $backgroundBlocks)
 {
     process
     {
         try
         {
             $scenario = $_
+
+            $scenario.Tags = @($featureTags | Except-Nulls) + @($scenario.Tags | Except-Nulls)
 
             [ScenarioContext]::Current = New-Object ScenarioContext
             [ScenarioContext]::Current.ScenarioInfo = $scenario 
@@ -897,7 +899,7 @@ function Run-SingleScenario($backgroundBlocks)
     }
 }
 
-function Run-SingleScenarioOrScenarioOutline($backgroundBlocks)
+function Run-SingleScenarioOrScenarioOutline($featureTags, $backgroundBlocks)
 {
     process
     {
@@ -968,12 +970,12 @@ function Run-SingleScenarioOrScenarioOutline($backgroundBlocks)
                                 IsScenarioOutline = $False 
                             } 
                         } | `
-                        Run-SingleScenario -backgroundBlocks $backgroundBlocks
+                        Run-SingleScenario -featureTags $featureTags -backgroundBlocks $backgroundBlocks 
                 }
         }
         else
         {
-            $scenario | Run-SingleScenario -backgroundBlocks $backgroundBlocks
+            $scenario | Run-SingleScenario -featureTags $featureTags -backgroundBlocks $backgroundBlocks
         }
     }
 }
@@ -983,7 +985,7 @@ function Run-FeatureScenarios($featureFile, $feature)
     [FeatureContext]::Current = New-Object FeatureContext
     [FeatureContext]::Current.FeatureInfo = $feature
     Invoke-GherkinHooks -hookType SetupFeature -hookArgument $feature
-    @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -backgroundBlocks $feature.Background.StepBlocks
+    @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks
     Invoke-GherkinHooks -hookType TeardownFeature -hookArgument $feature
 }
 #endregion
