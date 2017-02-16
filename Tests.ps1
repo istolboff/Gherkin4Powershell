@@ -1076,3 +1076,36 @@ Scenario: Scenario with tag-2
 (Hook 'AfterScenario'),
 (Hook 'AfterFeature'),
 (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: 
+@billing @irrelevant
+Scenario: Billing 
+	Given Call me Ishmael
+@jettisoned @discarded
+Scenario: Left out
+    When 4 plus 5 gives 9
+@accounting @unimportant
+Scenario: Accounting
+	Then everything should be alright
+"@) -tags '@billing,@accounting' `
+-illustrating 'Using Run-GherkinScenarios''s parameter $tags: several tags, inclusion' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = ''; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Billing'; Description = $Null; Tags = @('billing', 'irrelevant') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Ishmael)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Accounting'; Description = $Null; Tags = @('accounting', 'unimportant') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
