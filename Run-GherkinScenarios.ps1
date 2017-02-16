@@ -761,18 +761,9 @@ function Invoke-GherkinHooks($hookType, $hookArgument)
 {
     foreach ($hookData in (Get-GherkinHooks -hookType $hookType))
     {
-        $hook = $hookData.Script
-
         if (Tags-AllowHookInvocation -hookType $hookType -requiredTags $hookData.Tags)
         {
-            if ($hookArgument -ne $Null)
-            {
-                & $hook $hookArgument
-            }
-            else
-            {
-                & $hook 
-            }
+            & $hookData.Script $hookArgument
         }
     }
 }
