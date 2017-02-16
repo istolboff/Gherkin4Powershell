@@ -510,20 +510,12 @@ $GherkinKeywordParsers = Build-GherkinKeywordParsers -cultureName $cultureName
 #endregion
 
 # region Grammar from https://github.com/cucumber/gherkin/blob/master/gherkin.berp converted to powershell 
-function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
-{
-    $restOfLineParser = switch ($emptyRestOfLineIsAnError) { $False { (One-Of ([regex]'\s(.*)'), ([regex]'$')) } $True { ([regex]'\s(.*)') } }
-    return $keywordParser,
-           (from_ restOfLine in $restOfLineParser),
-           (select_ { $restOfLine | Trim-String })
-}
-
 $Comment = ([regex]'\s*#.*$')
 
 $TagLine = Repeat ([regex]'\s*@(\S+)')
 
 $TagsParser = (from_ tagNames in (Repeat (Token $TagLine))), 
-        (select_ { @($tagNames | ForEach-Object { $_ }) })
+              (select_ { @($tagNames | ForEach-Object { $_ }) })
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
@@ -559,7 +551,8 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 
                                         $resultingRow 
                                     })
-                 @{ Header = @($tableHeaderNames); Rows = @($parsedTableRows) } })
+                 @{ Header = @($tableHeaderNames); Rows = @($parsedTableRows) } 
+             })
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
@@ -577,30 +570,32 @@ function SingleStep-Parser($firstStepLineParser)
     (select_ { @{ StepText = $parsedStepText; ExtraArgument = $parsedStepExtraArgument } })
 }
 
-function StepBlock-Parser($stepKeywordParser)
+function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
 {
-    if ([Object]::ReferenceEquals($stepKeywordParser, $GherkinKeywordParsers.Given))
-    {
-        $stepType = '[StepTypeEnum]::Given'
-    }
-    elseif ([Object]::ReferenceEquals($stepKeywordParser, $GherkinKeywordParsers.When))
-    {
-        $stepType = '[StepTypeEnum]::When'
-    }
-    elseif ([Object]::ReferenceEquals($stepKeywordParser, $GherkinKeywordParsers.Then))
-    {
-        $stepType = '[StepTypeEnum]::Then'
-    }
+    $restOfLineParser = switch ($emptyRestOfLineIsAnError) { $False { (One-Of ([regex]'\s(.*)'), ([regex]'$')) } $True { ([regex]'\s(.*)') } }
+    return $keywordParser,
+           (from_ restOfLine in $restOfLineParser),
+           (select_ { $restOfLine | Trim-String })
+}
 
+function StepBlock-Parser($stepKeywordParser, $stepType)
+{
     $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Token (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
     $captured_ExceptNulls_function = ${function:Except-Nulls}
 
     return (from_ firstLineInBlock in (SingleStep-Parser (Token (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
            (from_ otherLinesInBlock in (Optional (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser))))),
-           (select_ { @{ BlockType = $stepType; Steps = @($firstLineInBlock) + @($otherLinesInBlock | & $captured_ExceptNulls_function) } }.GetNewClosure() ) 
+           (select_ { @{ 
+                          BlockType = $stepType; 
+                          Steps = @($firstLineInBlock) + @($otherLinesInBlock | & $captured_ExceptNulls_function) 
+                        } 
+           }.GetNewClosure() ) 
 }
 
-$ScenarioStepBlock = One-Of (StepBlock-Parser $GherkinKeywordParsers.Given), (StepBlock-Parser $GherkinKeywordParsers.When), (StepBlock-Parser $GherkinKeywordParsers.Then)
+$ScenarioStepBlock = One-Of `
+                        (StepBlock-Parser $GherkinKeywordParsers.Given '[StepTypeEnum]::Given'), `
+                        (StepBlock-Parser $GherkinKeywordParsers.When '[StepTypeEnum]::When'), `
+                        (StepBlock-Parser $GherkinKeywordParsers.Then '[StepTypeEnum]::Then')
 
 $Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Background))),
               (from_ backgroundDescription in $DescriptionHelper),
@@ -774,12 +769,7 @@ function Get-GherkinStepDefinitions($stepType)
     }
 
     $stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-    if (-Not ($stepDefinitionDictionary.Contains($stepType)))
-    {
-        return @()
-    }
-
-    return $stepDefinitionDictionary[$stepType]
+    return @($stepDefinitionDictionary[$stepType] | Except-Nulls)
 }
 
 function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
