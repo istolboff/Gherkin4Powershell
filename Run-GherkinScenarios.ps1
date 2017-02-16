@@ -520,9 +520,7 @@ function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
 
 $Comment = ([regex]'\s*#.*$')
 
-$TagLine = (from_ firstTagName in ([regex]'\s*@(\S+)')),
-           (from_ theOtherTagNames in (Optional (Repeat ([regex]'\s+@(\S+)')))),
-           (select_ { @($firstTagName) + @($theOtherTagNames | Except-Nulls) })
+$TagLine = Repeat ([regex]'\s*@(\S+)')
 
 $TagsParser = (from_ tagNames in (Repeat (Token $TagLine))), 
         (select_ { @($tagNames | ForEach-Object { $_ }) })
