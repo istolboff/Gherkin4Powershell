@@ -28,7 +28,7 @@ enum StepTypeEnum = Given, When, Then
 #endregion
 
 #region Hook setters
-function Add-GherkinHook($hookType, [scriptblock] $hookScript)
+function Add-GherkinHook($hookType, [scriptblock] $hookScript, [array] $tags)
 {
     if (-Not (Test-Path variable:global:GherkinHooksDictionary03C98485EFD84C888750187736C181A7))
     {
@@ -44,57 +44,57 @@ function Add-GherkinHook($hookType, [scriptblock] $hookScript)
     }
 
     $allHooksOfType = $hooksDictionary.Item($hookType)
-    $allHooksOfType.Add($hookScript) | Out-Null
+    $allHooksOfType.Add(@{ Script = $hookScript; Tags = $tags }) | Out-Null
 }
 
-function BeforeTestRun([scriptblock] $hookScript)
+function BeforeTestRun([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook SetupTestRun $hookScript
+    Add-GherkinHook SetupTestRun $hookScript $tags
 }
 
-function AfterTestRun([scriptblock] $hookScript)
+function AfterTestRun([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook TeardownTestRun $hookScript
+    Add-GherkinHook TeardownTestRun $hookScript $tags
 }
 
-function BeforeFeature([scriptblock] $hookScript)
+function BeforeFeature([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook SetupFeature $hookScript
+    Add-GherkinHook SetupFeature $hookScript $tags
 }
 
-function AfterFeature([scriptblock] $hookScript)
+function AfterFeature([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook TeardownFeature $hookScript
+    Add-GherkinHook TeardownFeature $hookScript $tags
 }
 
-function BeforeScenario([scriptblock] $hookScript)
+function BeforeScenario([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook SetupScenario $hookScript
+    Add-GherkinHook SetupScenario $hookScript $tags
 }
 
-function AfterScenario([scriptblock] $hookScript)
+function AfterScenario([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook TeardownScenario $hookScript
+    Add-GherkinHook TeardownScenario $hookScript $tags
 }
 
-function BeforeScenarioBlock([scriptblock] $hookScript)
+function BeforeScenarioBlock([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook SetupScenarioBlock $hookScript
+    Add-GherkinHook SetupScenarioBlock $hookScript $tags
 }
 
-function AfterScenarioBlock([scriptblock] $hookScript)
+function AfterScenarioBlock([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook TeardownScenarioBlock $hookScript
+    Add-GherkinHook TeardownScenarioBlock $hookScript $tags
 }
 
-function BeforeStep([scriptblock] $hookScript)
+function BeforeStep([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook SetupScenarioStep $hookScript
+    Add-GherkinHook SetupScenarioStep $hookScript $tags
 }
 
-function AfterStep([scriptblock] $hookScript)
+function AfterStep([scriptblock] $hookScript, [array] $tags)
 {
-    Add-GherkinHook TeardownScenarioStep $hookScript
+    Add-GherkinHook TeardownScenarioStep $hookScript $tags
 }
 #endregion
 

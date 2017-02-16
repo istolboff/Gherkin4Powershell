@@ -26,6 +26,12 @@ namespace TestScriptGenerator
             Trace.WriteLine($"(Hook 'BeforeFeature' -withContext @{{ Name = '{FeatureContext.Current.FeatureInfo.Title}'; Description = $Null; Tags = {DescribeTags(FeatureContext.Current.FeatureInfo.Tags)} }}),");
         }
 
+        [BeforeFeature("DemonstratingFeatureHookFilteringByTags", "SomeUnimportantTag")]
+        public static void FeatureHook()
+        {
+            Trace.WriteLine("(Hook 'HookFilteringByTags_BeforeFeature'),");
+        }
+
         [AfterFeature]
         public static void TeardownFeature()
         {
@@ -66,6 +72,12 @@ namespace TestScriptGenerator
         public static void StepTeardown()
         {
             Trace.WriteLine("(Hook 'AfterStep'),");
+        }
+
+        [AfterStep("AnotherUnimportantTag", "DemonstratingScenarioHookFilteringByTags")]
+        public static void StepHook()
+        {
+            Trace.WriteLine("(Hook 'HookFilteringByTags_AfterStep'),");
         }
 
         [Given(@"I have these friends")]

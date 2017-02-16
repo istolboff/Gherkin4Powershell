@@ -157,6 +157,11 @@ BeforeFeature {
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeFeature' @{ Name = $feature.Title; Description = $feature.Description; Tags = @($feature.Tags | Except-Nulls) })) })
 }
 
+BeforeFeature -tags @('DemonstratingFeatureHookFilteringByTags', 'SomeUnimportantTag') {
+    param ($feature)
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'HookFilteringByTags_BeforeFeature')) })
+}
+
 AfterFeature {
     param ($feature)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterFeature')) })
@@ -190,6 +195,11 @@ BeforeStep {
 AfterStep {
     param ($stepType)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterStep')) })
+}
+
+AfterStep -tags @('AnotherUnimportantTag', 'DemonstratingScenarioHookFilteringByTags') {
+    param ($stepType)
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'HookFilteringByTags_AfterStep')) })
 }
 
 Given ([regex]'Call me (.*)') {
@@ -1105,6 +1115,38 @@ Scenario: Accounting
 (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
 (Step -then 'everything should be alright'),
 (Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+@DemonstratingFeatureHookFilteringByTags
+Feature: Hooks Filtering by Tags
+Scenario: No scenario-level hooks 
+	Given Call me Ishmael
+@DemonstratingScenarioHookFilteringByTags
+Scenario: Accounting
+	Then everything should be alright
+"@) `
+-illustrating 'Hooks Filtering by Tags' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'Hooks Filtering by Tags'; Description = $Null; Tags = @('DemonstratingFeatureHookFilteringByTags') }),
+(Hook 'HookFilteringByTags_BeforeFeature'),
+(Hook 'BeforeScenario' -withContext @{ Name = 'No scenario-level hooks'; Description = $Null; Tags = @('DemonstratingFeatureHookFilteringByTags') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+(Step -given 'Call me Argument(Ishmael)'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Accounting'; Description = $Null; Tags = @('DemonstratingFeatureHookFilteringByTags', 'DemonstratingScenarioHookFilteringByTags') }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'HookFilteringByTags_AfterStep'),
 (Hook 'AfterScenarioBlock'),
 (Hook 'AfterScenario'),
 (Hook 'AfterFeature'),

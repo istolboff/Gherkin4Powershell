@@ -79,6 +79,11 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>f14.feature</DependentUpon>
     </Compile>
+    <Compile Include="Features\Tags\HooksFilteringByTags.feature.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>HooksFilteringByTags.feature</DependentUpon>
+    </Compile>
     <Compile Include="Features\Tags\InheritingFeatureTagsInScenarios.feature.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -108,6 +113,10 @@
     <None Include="Features\f14.feature">
       <Generator>SpecFlowSingleFileGenerator</Generator>
       <LastGenOutput>f14.feature.cs</LastGenOutput>
+    </None>
+    <None Include="Features\Tags\HooksFilteringByTags.feature">
+      <Generator>SpecFlowSingleFileGenerator</Generator>
+      <LastGenOutput>HooksFilteringByTags.feature.cs</LastGenOutput>
     </None>
     <None Include="Features\Tags\InheritingFeatureTagsInScenarios.feature">
       <Generator>SpecFlowSingleFileGenerator</Generator>

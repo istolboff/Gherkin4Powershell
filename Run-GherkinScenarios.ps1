@@ -742,17 +742,37 @@ function Get-GherkinHooks($hookType)
     return $hooksDictionary[$hookType]
 }
 
+function Tags-AllowHookInvocation($hookType, $requiredTags)
+{
+    if (@($requiredTags | Except-Nulls).Length -eq 0)
+    {
+        return $True
+    }
+
+    switch -wildcard ($hookType)
+    {
+        '*TestRun' { $True } 
+        '*Feature' { @([FeatureContext]::Current.FeatureInfo.Tags | Where { $requiredTags -contains $_ }).Length -gt 0 }
+        default    { @([ScenarioContext]::Current.ScenarioInfo.Tags | Where { $requiredTags -contains $_ }).Length -gt 0 }
+    }
+}
+
 function Invoke-GherkinHooks($hookType, $hookArgument)
 {
-    foreach ($hook in (Get-GherkinHooks -hookType $hookType))
+    foreach ($hookData in (Get-GherkinHooks -hookType $hookType))
     {
-        if ($hookArgument -ne $Null)
+        $hook = $hookData.Script
+
+        if (Tags-AllowHookInvocation -hookType $hookType -requiredTags $hookData.Tags)
         {
-            & $hook $hookArgument
-        }
-        else
-        {
-            & $hook 
+            if ($hookArgument -ne $Null)
+            {
+                & $hook $hookArgument
+            }
+            else
+            {
+                & $hook 
+            }
         }
     }
 }
