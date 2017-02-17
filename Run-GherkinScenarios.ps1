@@ -745,13 +745,13 @@ function Tags-AllowHookInvocation($hookType, $requiredTags)
     }
 }
 
-function Invoke-GherkinHooks($hookType, $hookArgument)
+function Invoke-GherkinHooks($hookType)
 {
     foreach ($hookData in (Get-GherkinHooks -hookType $hookType))
     {
         if (Tags-AllowHookInvocation -hookType $hookType -requiredTags $hookData.Tags)
         {
-            & $hookData.Script $hookArgument
+            & $hookData.Script 
         }
     }
 }
@@ -808,9 +808,9 @@ function Run-ScenarioStep($stepType)
         $stepBinding = Bind-ToStepExecuter -stepType $stepType -stepText $stepText -extraArgument $extraArgument
         if ($stepBinding -ne $Null)
         {
-            Invoke-GherkinHooks -hookType SetupScenarioStep -hookArgument $stepType
+            Invoke-GherkinHooks -hookType SetupScenarioStep
             Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments
-            Invoke-GherkinHooks -hookType TeardownScenarioStep -hookArgument $stepType
+            Invoke-GherkinHooks -hookType TeardownScenarioStep
         }
         else
         {
@@ -822,10 +822,10 @@ function Run-ScenarioStep($stepType)
 filter Run-ScenarioBlock
 {
     $currentBlock = $_
-    [ScenarioContext]::Current.CurrentScenarioBlock = $currentBlock.BlockType
-    Invoke-GherkinHooks -hookType SetupScenarioBlock -hookArgument $currentBlock.BlockType
+    [ScenarioContext]::Current.ScenarioInfo.CurrentScenarioBlock = $currentBlock.BlockType
+    Invoke-GherkinHooks -hookType SetupScenarioBlock
     $currentBlock.Steps | Run-ScenarioStep $currentBlock.BlockType
-    Invoke-GherkinHooks -hookType TeardownScenarioBlock -hookArgument $currentBlock.BlockType
+    Invoke-GherkinHooks -hookType TeardownScenarioBlock
 }
 
 function IsNull-OrEmptyArray($collection)
@@ -910,9 +910,9 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             [ScenarioContext]::Current.ScenarioInfo = $scenario 
 
             $script:totalScenarios++
-            Invoke-GherkinHooks -hookType SetupScenario -hookArgument $scenario
+            Invoke-GherkinHooks -hookType SetupScenario
             Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
-            Invoke-GherkinHooks -hookType TeardownScenario -hookArgument $scenario
+            Invoke-GherkinHooks -hookType TeardownScenario
             $script:succeededScenarios++
             Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title)`t`tsucceeded."
         }
@@ -1007,9 +1007,9 @@ function Run-FeatureScenarios($featureFile, $feature)
 {
     [FeatureContext]::Current = New-Object FeatureContext
     [FeatureContext]::Current.FeatureInfo = $feature
-    Invoke-GherkinHooks -hookType SetupFeature -hookArgument $feature
+    Invoke-GherkinHooks -hookType SetupFeature
     @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks
-    Invoke-GherkinHooks -hookType TeardownFeature -hookArgument $feature
+    Invoke-GherkinHooks -hookType TeardownFeature
 }
 #endregion
 

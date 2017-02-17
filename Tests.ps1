@@ -153,52 +153,46 @@ AfterTestRun {
 }
 
 BeforeFeature {
-    param ($feature)
+    $feature = [FeatureContext]::Current.FeatureInfo
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeFeature' @{ Name = $feature.Title; Description = $feature.Description; Tags = @($feature.Tags | Except-Nulls) })) })
 }
 
 BeforeFeature -tags @('DemonstratingFeatureHookFilteringByTags', 'SomeUnimportantTag') {
-    param ($feature)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'HookFilteringByTags_BeforeFeature')) })
 }
 
 AfterFeature {
-    param ($feature)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterFeature')) })
 }
 
 BeforeScenario {
-    param ($scenario)
+    $scenario = [ScenarioContext]::Current.ScenarioInfo
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenario' @{ Name = $scenario.Title; Description = $scenario.Description; Tags = @($scenario.Tags | Except-Nulls) })) })
 }
 
 AfterScenario {
-    param ($scenario)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterScenario')) })
 }
 
 BeforeScenarioBlock {
-    param ($blockType)
+    $blockType = [ScenarioContext]::Current.ScenarioInfo.CurrentScenarioBlock
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenarioBlock' @{ BlockType = $blockType })) })
 }
 
 AfterScenarioBlock {
-    param ($blockType)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterScenarioBlock')) })
 }
 
 BeforeStep {
-    param ($stepType)
+    $stepType = [ScenarioContext]::Current.ScenarioInfo.CurrentScenarioBlock
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeStep' @{ StepType = $stepType })) })
 }
 
 AfterStep {
-    param ($stepType)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'AfterStep')) })
 }
 
 AfterStep -tags @('AnotherUnimportantTag', 'DemonstratingScenarioHookFilteringByTags') {
-    param ($stepType)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'HookFilteringByTags_AfterStep')) })
 }
 
