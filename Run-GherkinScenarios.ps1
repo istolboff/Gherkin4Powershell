@@ -215,7 +215,7 @@ function Optional($parser)
     }.GetNewClosure()
 }
 
-function Repeat($parser)
+function Repeat($parser, [switch] $allowZeroRepetition)
 {
     Verify-That -condition ($parser -ne $Null) -message 'Program logic error: Repeat($Null)'
 
@@ -233,7 +233,7 @@ function Repeat($parser)
             $parsingResult = & $captured_ParseContentWithParser_function -content $restOfContent -parser $parser
             if ($parsingResult -eq $Null)
             {
-                if ($values.Length -eq 0)
+                if (-Not $allowZeroRepetition -and $values.Length -eq 0)
                 {
                     return $Null
                 }
@@ -519,18 +519,14 @@ $TagsParser = (from_ tagNames in (Repeat (Token $TagLine))),
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
-$DescriptionHelper = (Optional (Repeat (One-Of (Token $Comment), (Token $Other))))
+$DescriptionHelper = Repeat (One-Of (Token $Comment), (Token $Other)) -allowZeroRepetition
 
 $TableRow = Token(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]')))
 
 $DataTable = (from_ parsedTableHeader in $TableRow),
-             (from_ parsedTableData in (Optional (Repeat $TableRow))),
+             (from_ parsedTableData in (Repeat $TableRow -allowZeroRepetition)),
              (select_ { 
                  $tableHeaderNames = @($parsedTableHeader | ForEach-Object { switch ($_) { $Null { '' } default { $_.Trim() } } })
-                 if ($parsedTableData -eq $Null)
-                 {
-                     return @{ Header = @($tableHeaderNames); Rows = @() } 
-                 }
 
                  $parsedTableRows = @($parsedTableData | `
                                     ForEach-Object {
@@ -557,7 +553,7 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
 $DocString = (Token $DocStringSeparator), 
-             (from_ parsedDocStringLine in (Optional (Repeat (Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))))), 
+             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))) -allowZeroRepetition)), 
              (Token $DocStringSeparator),
              (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
@@ -581,13 +577,12 @@ function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
 function StepBlock-Parser($stepKeywordParser, $stepType)
 {
     $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Token (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
-    $captured_ExceptNulls_function = ${function:Except-Nulls}
 
     return (from_ firstLineInBlock in (SingleStep-Parser (Token (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
-           (from_ otherLinesInBlock in (Optional (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser))))),
+           (from_ otherLinesInBlock in (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser)) -allowZeroRepetition)),
            (select_ { @{ 
                           BlockType = $stepType; 
-                          Steps = @($firstLineInBlock) + @($otherLinesInBlock | & $captured_ExceptNulls_function) 
+                          Steps = @($firstLineInBlock) + @($otherLinesInBlock) 
                         } 
            }.GetNewClosure() ) 
 }
@@ -599,13 +594,13 @@ $ScenarioStepBlock = One-Of `
 
 $Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Background))),
               (from_ backgroundDescription in $DescriptionHelper),
-              (from_ backgroundStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
+              (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
 $Scenario = (from_ scenarioTags in (Optional $TagsParser)), 
             (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))), 
             (from_ scenarioDescription in $DescriptionHelper),
-            (from_ scenarioStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
+            (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
             (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
 $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)), 
@@ -622,8 +617,8 @@ $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
 
 $ScenarioOutline = (from_ scenarioOutlineName in (Token (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
                    (from_ scenarioOutlineDescription in $DescriptionHelper),
-                   (from_ scenarioOutlineStepBlocks in (Optional (Repeat $ScenarioStepBlock))),
-                   (from_ scenarioOutlineExamples in (Optional (Repeat $ExamplesDefinition))),
+                   (from_ scenarioOutlineStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
+                   (from_ scenarioOutlineExamples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
                    (select_ { @{
                                 Title = $scenarioOutlineName;
                                 Description = $scenarioOutlineDescription;
@@ -639,7 +634,7 @@ $Feature_Header = (from_ featureTags in (Optional $TagsParser)),
 
 $Feature = (from_ featureHeader in $Feature_Header), 
            (from_ parsedBackground in (Optional $Background)), 
-           (from_ scenarios in (Optional (Repeat (One-Of $Scenario, $ScenarioOutline)))),
+           (from_ scenarios in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
            (select_ { @{ 
                         Title = $featureHeader.Name; 
                         Description = $featureHeader.Description; 
