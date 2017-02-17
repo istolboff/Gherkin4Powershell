@@ -1151,3 +1151,40 @@ Scenario: Accounting
 (Hook 'AfterScenario'),
 (Hook 'AfterFeature'),
 (Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+Feature: Testing scenario-level @ignore tag
+@ignore
+Scenario: Ignored scenario
+	Given Call me Ishmael
+Scenario: Accounting
+	Then everything should be alright
+"@) `
+-illustrating 'Testing scenario-level @ignore tag' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'Testing scenario-level @ignore tag'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenario' -withContext @{ Name = 'Accounting'; Description = $Null; Tags = @() }),
+(Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }),
+(Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+(Step -then 'everything should be alright'),
+(Hook 'AfterStep'),
+(Hook 'AfterScenarioBlock'),
+(Hook 'AfterScenario'),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')
+
+
+Running (Gherkin-Script @"
+@ignore
+Feature: Testing feature-level @ignore tag 
+Scenario: Test something
+	Given Call me Ishmael
+Scenario: Test something else
+	Then everything should be alright
+"@) `
+-illustrating 'Testing feature-level @ignore tag' | should result in invocation of `
+(Hook 'BeforeTestRun'),
+(Hook 'BeforeFeature' -withContext @{ Name = 'Testing feature-level @ignore tag'; Description = $Null; Tags = @('ignore') }),
+(Hook 'AfterFeature'),
+(Hook 'AfterTestRun')

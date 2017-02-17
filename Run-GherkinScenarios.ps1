@@ -869,6 +869,11 @@ function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
 
 function Scenario-ShouldBeIgnoredAccordingToItsTags($scenarioTags)
 {
+    if ($scenarioTags -contains 'ignore')
+    {
+        return $True
+    }
+
     if ([string]::IsNullOrEmpty($tags))
     {
         return $False
