@@ -28,6 +28,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Define-GherkinHooksApi.ps1" />
+    <Compile Include="Parser-Launcher.ps1" />
     <Compile Include="Run-GherkinScenarios.ps1" />
     <Compile Include="Tests.ps1" />
   </ItemGroup>

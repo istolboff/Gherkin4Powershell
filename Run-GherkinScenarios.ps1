@@ -928,7 +928,6 @@ function Run-SingleScenarioOrScenarioOutline($featureTags, $backgroundBlocks)
             $scenario.SetsOfExamples | `
                 ForEach-Object {
                     $currentSetOfExamples = $_
-                    $firstColumnName = $currentSetOfExamples.ExampleVariableNames[0]
 
                     $currentSetOfExamples.ExamplesData | `
                         ForEach-Object { 
