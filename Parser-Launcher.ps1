@@ -13,12 +13,12 @@ Given ([regex]'(.*)') {
 
 When ([regex]'(.*)') {
     param ($scenarioLine)
-    Write-Host "Given: $scenarioLine"
+    Write-Host "When: $scenarioLine"
 }
 
 Then ([regex]'(.*)') {
     param ($scenarioLine)
-    Write-Host "Given: $scenarioLine"
+    Write-Host "Then: $scenarioLine"
 }
 
 $parsedScenarios = & $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `

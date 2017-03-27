@@ -27,56 +27,6 @@ trap {
 $totalScenarios = 0
 $succeededScenarios = 0
 
-#region class TextLine
-function Build-TextLine([string] $chars, [int] $offset)
-{
-    @{ Chars = $chars; Offset = $offset }
-}
-
-function Line-ContainsNonSpaceCharacters($textLine)
-{
-    return $textLine.Chars.Substring($textLine.Offset).Trim().Length -gt 0
-}
-#endregion
-
-#region class ParsingResult
-function Build-ParsingResult($value, $rest)
-{
-    @{ Value = $value; Rest = $rest }
-}
-#endregion
-
-#region class Content
-function Build-Content([array] $lines, [int] $currentLine)
-{
-    @{ Lines = $lines; CurrentLine = $currentLine }
-}
-
-function Get-IndexOfFirstNonSpaceCharacter($lineChars)
-{
-    $matchingResult = ([regex]'\S').Match($lineChars)
-    switch ($matchingResult.Success) { $False { $Null } $True { $matchingResult.Index } }
-}
-
-function Get-NextLine($content)
-{
-    for ($nextLineIndex = $content.CurrentLine + 1; $nextLineIndex -lt $content.Lines.Length; $nextLineIndex++)
-    {
-        $lineChars = $content.Lines[$nextLineIndex]
-        $offset = Get-IndexOfFirstNonSpaceCharacter $lineChars
-        if ($offset -ne $Null)
-        {
-            return @{
-                Line = (Build-TextLine -chars $lineChars -offset $offset);
-                Rest = (Build-Content -lines $content.Lines -currentLine $nextLineIndex)
-            }
-        }
-    }
-
-    return $Null
-}
-#endregion 
-
 #region Miscellaneous  
 function Verify-That($condition, $message)
 {
@@ -135,6 +85,48 @@ function List-ScenarioFiles($scenarioFiles)
 }
 #endregion
 
+#region class FeatureFileContent
+function Build-FeatureFileContent([array] $textLines, [int] $currentLineNumber, [int] $offsetInCurrentLine)
+{
+    Verify-That -condition ($currentLineNumber -lt $textLines.Length) -message 'Attempt to read past the end of file'
+    @{ TextLines = $textLines; CurrentLineNumber = $currentLineNumber; OffsetInCurrentLine = $offsetInCurrentLine }
+}
+
+function CurrentLine-ContainsNonSpaceCharacters($content)
+{
+    $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+    return $currentLineChars.Substring($content.OffsetInCurrentLine).Trim().Length -gt 0
+}
+
+function Get-IndexOfFirstNonSpaceCharacter($lineChars)
+{
+    $matchingResult = ([regex]'\S').Match($lineChars)
+    switch ($matchingResult.Success) { $False { $Null } $True { $matchingResult.Index } }
+}
+
+function Get-NextLine($content)
+{
+    for ($nextLineIndex = $content.CurrentLineNumber + 1; $nextLineIndex -lt $content.TextLines.Length; $nextLineIndex++)
+    {
+        $lineChars = $content.TextLines[$nextLineIndex]
+        $offset = Get-IndexOfFirstNonSpaceCharacter $lineChars
+        if ($offset -ne $Null)
+        {
+            return Build-FeatureFileContent -textLines $content.TextLines -currentLineNumber $nextLineIndex -offsetInCurrentLine $offset
+        }
+    }
+
+    return $Null
+}
+#endregion
+
+#region class ParsingResult
+function Build-ParsingResult($value, $rest)
+{
+    @{ Value = $value; Rest = $rest }
+}
+#endregion
+
 #region Monadic Parsing
 function Parse-ContentWithParser($parser, $content)
 {
@@ -146,50 +138,54 @@ function Parse-ContentWithParser($parser, $content)
     if ($parser -is [string])
     {
         $patternLength = $parser.Length
-        if ([String]::Compare($content.Chars, $content.Offset, $parser, 0, $patternLength) -ne 0)
+        $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+        if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
         {
-            Log-Parsing "Literal [$parser] failed on line $($content.Chars) at offset $($content.Offset)"
+            Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
             return $Null
         }
 
-        $parsedValue = $parser
-        $restOfLine = Build-TextLine -chars $content.Chars -offset ($content.Offset + $patternLength)
+        $restOfContent = Build-FeatureFileContent `
+                            -textLines $content.TextLines `
+                            -currentLineNumber $content.CurrentLineNumber `
+                            -offsetInCurrentLine ($content.OffsetInCurrentLine + $patternLength)
         Log-Parsing "Literal [$parser] matched on line $($content.Chars) at offset $($content.Offset)"
-        return Build-ParsingResult -value $parsedValue -rest $restOfLine
+        return Build-ParsingResult -value $parser -rest $restOfContent
     }
 
     if ($parser -is [regex])
     {
-        $matchingResult = $parser.Match($content.Chars, $content.Offset)
-        if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.Offset))
+        $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+        $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
+        if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
         {
-            Log-Parsing "Regex [$parser] failed on line $($content.Chars) at offset $($content.Offset)"
+            Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
             return $Null
         }
 
         $parsedValue = $matchingResult.Groups[1].Value
-        $restOfLine = Build-TextLine -chars $content.Chars -offset ($content.Offset + $matchingResult.Length)
-        Log-Parsing "Regex [$parser] matched on line $($content.Chars) at offset $($content.Offset), length=$($matchingResult.Length). Match result: $parsedValue"
-        return Build-ParsingResult -value $parsedValue -rest $restOfLine
+        $restOfContent = Build-FeatureFileContent `
+                            -textLines $content.TextLines `
+                            -currentLineNumber $content.CurrentLineNumber `
+                            -offsetInCurrentLine ($content.OffsetInCurrentLine + $matchingResult.Length)
+        Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
+        return Build-ParsingResult -value $parsedValue -rest $restOfContent
     }
 
     if ($parser -is [array])  
     {
-        $value = $Null  # when many parsers are specified then the result will be the last one's output
-        $restOfContent = $content
         foreach ($nextParser in $parser)
         {
-            $parsingResult = Parse-ContentWithParser -content $restOfContent -parser $nextParser
+            $parsingResult = Parse-ContentWithParser -content $content -parser $nextParser
             if ($parsingResult -eq $Null)
             {
                 return $Null
             }
 
-            $value = $parsingResult.Value  
-            $restOfContent = $parsingResult.Rest
+            $content = $parsingResult.Rest
         }
 
-        return Build-ParsingResult -value $value -rest $restOfContent 
+        return $parsingResult 
     }
 
     throw "Do not know how to parse with $parser of type $($parser.GetType())"
@@ -299,30 +295,14 @@ function Anything-But($parser)
 #endregion
 
 #region Parsing single line of text 
-function Parse-TextLineWithTokenParser($tokenParser, $textLine)
-{
-    $parsingResult = Parse-ContentWithParser -parser $tokenParser -content $textLine
-
-    if ($parsingResult -eq $Null) # unrecognized pattern
-    {
-        return $Null
-    }
-
-    if (Line-ContainsNonSpaceCharacters $parsingResult.Rest) # token parser matched the beginning of the line, but there still remain some unrecognized characters 
-    {
-        return $Null
-    }
-
-    return $parsingResult.Value
-}
-
 function Token($tokenParser)
 {
     Verify-That -condition ($tokenParser -ne $Null) -message "Program logic error: `$tokenParser is Null"
 
     $captured_GetNextLine_function = ${function:Get-NextLine}
-    $captured_ParseTextLineWithTokenParser_function = ${function:Parse-TextLineWithTokenParser}
-    $captured_BuildContent_function = ${function:Build-Content}
+    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
+    $captured_LineContainsNonSpaceCharacters_function = ${function:CurrentLine-ContainsNonSpaceCharacters}
+
     return {
             param ($content)
 
@@ -332,13 +312,20 @@ function Token($tokenParser)
                 return $Null
             }
 
-            $lineParsingResult = & $captured_ParseTextLineWithTokenParser_function -textLine $nextLine.Line -tokenParser $tokenParser
-            if ($lineParsingResult -eq $Null)
+            $parsingResult = & $captured_ParseContentWithParser_function -parser $tokenParser -content $nextLine
+
+            if ($parsingResult -eq $Null) # unrecognized pattern
             {
                 return $Null
             }
 
-            return @{ Value = $lineParsingResult;  Rest = $nextLine.Rest }
+            # If token parser matched the beginning of the line, but there still remain some unrecognized characters 
+            if (& $captured_LineContainsNonSpaceCharacters_function -content $parsingResult.Rest) 
+            {
+                return $Null
+            }
+
+            return $parsingResult
         }.GetNewClosure()
 }
 
@@ -346,7 +333,7 @@ function EndOfContent
 {
     $captured_GetNextLine_function = ${function:Get-NextLine}
     $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-    $captured_LineContainsNonSpaceCharacters_function = ${function:Line-ContainsNonSpaceCharacters}
+    $captured_LineContainsNonSpaceCharacters_function = ${function:CurrentLine-ContainsNonSpaceCharacters}
 
     return {
         param ($content)
@@ -359,23 +346,13 @@ function EndOfContent
                 return (& $captured_BuildParsingResult_function -value $True -rest $content)
             }
 
-            if (& $captured_LineContainsNonSpaceCharacters_function -textLine $nextLine.Line)
+            if (& $captured_LineContainsNonSpaceCharacters_function -content $nextLine)
             {
                 return $Null
             }
 
-            $content = $nextLine.Rest
+            $content = $nextLine
         }
-    }.GetNewClosure()
-}
-
-function Attach-Debugger($contextHint)
-{
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-    return {
-        param ($content)
-        Write-Host "Attaching Debugger at $contextHint..."
-        return (& $captured_BuildParsingResult_function -value $True -rest $content)
     }.GetNewClosure()
 }
 #endregion
@@ -1022,7 +999,7 @@ if ((-Not [string]::IsNullOrEmpty($logParsingToFile)) -and (Test-Path $logParsin
 
 $parsedScenarios = @(List-ScenarioFiles $scenarioFiles | ForEach-Object { 
         $scriptFilePath = $_
-        $scriptFileContent = Build-Content -lines (Get-Content $scriptFilePath) -currentLine -1
+        $scriptFileContent = Build-FeatureFileContent -textLines (Get-Content $scriptFilePath) -currentLineNumber -1 -offsetInCurrentLine 0
         $parsingResult = Parse-ContentWithParser -content $scriptFileContent -parser $GherkinDocument 
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
