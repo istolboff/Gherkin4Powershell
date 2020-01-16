@@ -1,33 +1,44 @@
 ﻿param (
-    [string] $scenarioFiles,
+    [string] $scenarios,
+	[string] $stepDefinitions = $null,
     [string] $tags = $Null,
     [string] $cultureName = 'en-US',
-    [string] $logParsingToFile = $Null)
+    [string] $logParsingToFile = $Null,
+    [string] $logTestRunningToFile = $Null,
+	[switch] $failFast,
+    [switch] $doNotCleanupGherkinRunningInfrastructure,
+    [switch] $showCurrentStepInConsoleTitle)
 
-trap { 
+. (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
+
+function Log-TestRunning($message)
+{
+    if (-Not [string]::IsNullOrEmpty($logTestRunningToFile))
+    {
+        "$([datetime]::Now.ToString("HH:mm:ss.ffff"))   $message" | Out-File -FilePath $logTestRunningToFile -Append
+    }
+}
+
+trap {
     if ($global:Error.Count -gt 0)
     {
         foreach ($record in @($global:Error[0]))
         {
-            $record | Format-List * -Force | Out-Host
-            $record.InvocationInfo | Format-List * | Out-Host
-            $Exception = $record.Exception | Out-Host
-            for ($i = 0; $Exception; $i++, ($Exception = $Exception.InnerException))
+            $errorDescription = Describe-ErrorRecord -errorRecord $record
+            if ($failFast)
             {
-                "$i" * 80 | Out-Host
-                $Exception | Format-List * -Force | Out-Host
+                Log-TestRunning -message $errorDescription
             }
+
+            $errorDescription | Out-Host
         }
     }
 
-    exit 1; 
-    continue 
+    exit 1;
+    continue
 }
 
-$totalScenarios = 0
-$succeededScenarios = 0
-
-#region Miscellaneous  
+#region Miscellaneous
 function Verify-That($condition, $message)
 {
     if (-Not $condition)
@@ -67,21 +78,22 @@ function Log-Parsing($message)
     }
 }
 
-function List-ScenarioFiles($scenarioFiles)
+function List-Files($fileSet)
 {
-    if ([System.IO.File]::Exists($scenarioFiles))
+	$resolvedPath = Resolve-Path $fileSet
+    if ([System.IO.File]::Exists($resolvedPath))
     {
-        return @($scenarioFiles)
+        return @($resolvedPath)
     }
 
-    if ([System.IO.Directory]::Exists($scenarioFiles))
+    if ([System.IO.Directory]::Exists($resolvedPath))
     {
-        return @(Get-ChildItem $scenarioFiles -Recurse | Where { $_ -is [System.IO.FileInfo] } | ForEach-Object { $_.FullName })
+        return @(Get-ChildItem $resolvedPath -Recurse | Where-Object { $_ -is [System.IO.FileInfo] } | ForEach-Object { $_.FullName })
     }
 
-    $folderPath = Split-Path -Path $scenarioFiles -Parent
-    $filter =  Split-Path -Path $scenarioFiles -Leaf
-    return @(Get-ChildItem -Path $folderPath -Filter $filter | Where { $_ -is [System.IO.FileInfo] })
+    $folderPath = Split-Path -Path $resolvedPath -Parent
+    $filter =  Split-Path -Path $resolvedPath -Leaf
+    return @(Get-ChildItem -Path $folderPath -Filter $filter | Where-Object { $_ -is [System.IO.FileInfo] })
 }
 #endregion
 
@@ -100,8 +112,11 @@ function CurrentLine-ContainsNonSpaceCharacters($content)
 
 function Get-IndexOfFirstNonSpaceCharacter($lineChars)
 {
-    $matchingResult = ([regex]'\S').Match($lineChars)
-    switch ($matchingResult.Success) { $False { $Null } $True { $matchingResult.Index } }
+    if (-not ($lineChars -match '^\s*#.*$'))
+    {
+        $matchingResult = ([regex]'\S').Match($lineChars)
+        switch ($matchingResult.Success) { $False { $Null } $True { $matchingResult.Index } }
+    }
 }
 
 function Get-NextLine($content)
@@ -110,7 +125,7 @@ function Get-NextLine($content)
     {
         $lineChars = $content.TextLines[$nextLineIndex]
         $offset = Get-IndexOfFirstNonSpaceCharacter $lineChars
-        if ($offset -ne $Null)
+        if ($Null -ne $offset)
         {
             return Build-FeatureFileContent -textLines $content.TextLines -currentLineNumber $nextLineIndex -offsetInCurrentLine $offset
         }
@@ -149,7 +164,7 @@ function Parse-ContentWithParser($parser, $content)
                             -textLines $content.TextLines `
                             -currentLineNumber $content.CurrentLineNumber `
                             -offsetInCurrentLine ($content.OffsetInCurrentLine + $patternLength)
-        Log-Parsing "Literal [$parser] matched on line $($content.Chars) at offset $($content.Offset)"
+        Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
         return Build-ParsingResult -value $parser -rest $restOfContent
     }
 
@@ -172,12 +187,12 @@ function Parse-ContentWithParser($parser, $content)
         return Build-ParsingResult -value $parsedValue -rest $restOfContent
     }
 
-    if ($parser -is [array])  
+    if ($parser -is [array])
     {
         foreach ($nextParser in $parser)
         {
             $parsingResult = Parse-ContentWithParser -content $content -parser $nextParser
-            if ($parsingResult -eq $Null)
+            if ($Null -eq $parsingResult)
             {
                 return $Null
             }
@@ -185,36 +200,29 @@ function Parse-ContentWithParser($parser, $content)
             $content = $parsingResult.Rest
         }
 
-        return $parsingResult 
+        return $parsingResult
     }
 
     throw "Do not know how to parse with $parser of type $($parser.GetType())"
 }
 
-function Optional($parser)
+function Optional([ValidateNotNullOrEmpty()] $parser, $orElse = $null)
 {
-    Verify-That -condition ($parser -ne $Null) -message 'Program logic error: Optional($Null)'
-
     $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
     $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
 
     return {
         param ($content)
-
-        $parsingResult = & $captured_ParseContentWithParser_function -parser $parser -content $content
-        if ($parsingResult -ne $Null)
+        switch ($parsingResult = & $captured_ParseContentWithParser_function -parser $parser -content $content)
         {
-            return $parsingResult 
+            $null  { & $captured_BuildParsingResult_function -value $orElse -rest $content }
+            default { $parsingResult }
         }
-
-        return (& $captured_BuildParsingResult_function -value $Null -rest $content)
     }.GetNewClosure()
 }
 
-function Repeat($parser, [switch] $allowZeroRepetition)
+function Repeat([ValidateNotNullOrEmpty()]$parser, [switch] $allowZeroRepetition)
 {
-    Verify-That -condition ($parser -ne $Null) -message 'Program logic error: Repeat($Null)'
-
     $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
     $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
 
@@ -227,7 +235,7 @@ function Repeat($parser, [switch] $allowZeroRepetition)
         while ($True)
         {
             $parsingResult = & $captured_ParseContentWithParser_function -content $restOfContent -parser $parser
-            if ($parsingResult -eq $Null)
+            if ($Null -eq $parsingResult)
             {
                 if (-Not $allowZeroRepetition -and $values.Length -eq 0)
                 {
@@ -240,12 +248,12 @@ function Repeat($parser, [switch] $allowZeroRepetition)
             if ($parsingResult.Value -is [array])
             {
                 $values += , $parsingResult.Value
-            } 
+            }
             else
             {
                 $values += $parsingResult.Value
             }
-            
+
             $restOfContent = $parsingResult.Rest
         }
     }.GetNewClosure()
@@ -263,9 +271,9 @@ function One-Of([array] $parsers)
         foreach ($parserAlternative in $parsers)
         {
             $parsingResult = & $captured_ParseContentWithParser_function -content $content -parser $parserAlternative
-            if ($parsingResult -ne $Null)
+            if ($Null -ne $parsingResult)
             {
-                return $parsingResult 
+                return $parsingResult
             }
         }
 
@@ -273,10 +281,8 @@ function One-Of([array] $parsers)
     }.GetNewClosure()
 }
 
-function Anything-But($parser)
+function Anything-But([ValidateNotNullOrEmpty()] $parser)
 {
-    Verify-That -condition $parser -ne $Null -message 'Program logic error: Anything-But($Null)' 
-
     $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
     $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
 
@@ -284,9 +290,9 @@ function Anything-But($parser)
         param ($content)
 
         $parsingResult = & $captured_ParseContentWithParser_function -content $content -parser $parser
-        if ($parsingResult -ne $Null)
+        if ($Null -ne $parsingResult)
         {
-            return $Null 
+            return $Null
         }
 
         return (& $captured_BuildParsingResult_function -value $True -rest $content)
@@ -294,11 +300,9 @@ function Anything-But($parser)
 }
 #endregion
 
-#region Parsing single line of text 
-function Token($tokenParser)
+#region Parsing single line of text
+function Token([ValidateNotNullOrEmpty()] $tokenParser)
 {
-    Verify-That -condition ($tokenParser -ne $Null) -message "Program logic error: `$tokenParser is Null"
-
     $captured_GetNextLine_function = ${function:Get-NextLine}
     $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
     $captured_LineContainsNonSpaceCharacters_function = ${function:CurrentLine-ContainsNonSpaceCharacters}
@@ -307,20 +311,19 @@ function Token($tokenParser)
             param ($content)
 
             $nextLine = & $captured_GetNextLine_function $content
-            if ($nextLine -eq $Null)
+            if ($Null -eq $nextLine)
             {
                 return $Null
             }
 
             $parsingResult = & $captured_ParseContentWithParser_function -parser $tokenParser -content $nextLine
-
-            if ($parsingResult -eq $Null) # unrecognized pattern
+            if ($Null -eq $parsingResult) # unrecognized pattern
             {
                 return $Null
             }
 
-            # If token parser matched the beginning of the line, but there still remain some unrecognized characters 
-            if (& $captured_LineContainsNonSpaceCharacters_function -content $parsingResult.Rest) 
+            # If token parser matched the beginning of the line, but there still remain some unrecognized characters
+            if (& $captured_LineContainsNonSpaceCharacters_function -content $parsingResult.Rest)
             {
                 return $Null
             }
@@ -341,7 +344,7 @@ function EndOfContent
         while ($True)
         {
             $nextLine = & $captured_GetNextLine_function $content
-            if ($nextLine -eq $Null)
+            if ($Null -eq $nextLine)
             {
                 return (& $captured_BuildParsingResult_function -value $True -rest $content)
             }
@@ -357,21 +360,19 @@ function EndOfContent
 }
 #endregion
 
-#region Linq-like expressions 
+#region Linq-like expressions
 function From-Parser
 {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$True, Position=0)]
         [string][ValidateNotNullOrEmpty()]$parsingResultName,
- 
+
         [Parameter(Mandatory=$true, Position=1)]
         [string][ValidateSet('in')]$textIn,
- 
+
         [Parameter(Mandatory=$true, Position=2)]
         [object][ValidateNotNullOrEmpty()]$parser)
- 
-    Verify-That -condition ($parser -ne $Null) -message "Program logic error: (from_ $parsingResultName in `$Null)"
 
     $captured_ParseContentWithParser_Function = ${function:Parse-ContentWithParser}
     $captured_LogParsing_Function = ${function:Log-Parsing}
@@ -381,7 +382,7 @@ function From-Parser
 
         $parsingResult = & $captured_ParseContentWithParser_Function -parser $parser -content $content
 
-        if ($parsingResult -ne $Null)
+        if ($Null -ne $parsingResult)
         {
             Set-Variable -Name $parsingResultName -Value $parsingResult.Value -Scope 2
             & $captured_LogParsing_Function "from_ $parsingResultName => $($parsingResult.Value)"
@@ -422,8 +423,8 @@ function Build-GherkinKeywordParsers($cultureName)
             'cy-GB-CY-GB' = @{ Feature='Arwedd'; Background='Cefndir'; Scenario='Scenario'; ScenarioOutline='Scenario Amlinellol'; Examples='Enghreifftiau'; Given='Anrhegedig a'; When='Pryd'; Then='Yna'; And='A'; But='Ond' };
             'da-DA' = @{ Feature='Egenskab'; Background='Baggrund'; Scenario='Scenarie'; ScenarioOutline='Abstrakt Scenario'; Examples='Eksempler'; Given='Givet'; When='Når'; Then='Så'; And='Og'; But='Men' };
             'de-DE' = @{ Feature='Funktionalität'; Background='Grundlage'; Scenario='Szenario'; ScenarioOutline='Szenariogrundriss'; Examples='Beispiele'; Given='Angenommen','Gegeben sei','Gegeben seien'; When='Wenn'; Then='Dann'; And='Und'; But='Aber' };
-            'en-EN' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
-            'en-US' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
+            'en-EN' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario','Example'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
+            'en-US' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario','Example'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
             'en-AU-EN-AU' = @{ Feature='Pretty much'; Background='First off'; Scenario='Awww, look mate'; ScenarioOutline='Reckon it''s like'; Examples='You''ll wanna'; Given='Y''know'; When='It''s just unbelievable'; Then='But at the end of the day I reckon'; And='Too right'; But='Yeah nah' };
             'en-EN-LOL' = @{ Feature='OH HAI'; Background='B4'; Scenario='MISHUN'; ScenarioOutline='MISHUN SRSLY'; Examples='EXAMPLZ'; Given='I CAN HAZ'; When='WEN'; Then='DEN'; And='AN'; But='BUT' };
             'en-EN-PIRATE' = @{ Feature='Ahoy matey!'; Background='Yo-ho-ho'; Scenario='Heave to'; ScenarioOutline='Shiver me timbers'; Examples='Dead men tell no tales'; Given='Gangway!'; When='Blimey!'; Then='Let go and haul'; And='Aye'; But='Avast!' };
@@ -462,12 +463,13 @@ function Build-GherkinKeywordParsers($cultureName)
             'zh-TW-ZH-TW' = @{ Feature='功能'; Background='背景'; Scenario='場景','劇本'; ScenarioOutline='場景大綱','劇本大綱'; Examples='例子'; Given='假設'; When='當'; Then='那麼'; And='而且','並且'; But='但是' };
         }
 
-    $localizedKeywords = $allGherkinKeywords[$cultureName]
     Verify-That `
-        -condition $localizedKeywords -ne $Null `
+        -condition $allGherkinKeywords.ContainsKey($cultureName) `
         -message "No Gherkin keywords are known for culture name $cultureName. Use one of the following culture names: $([String]::Join(',', $allGherkinKeywords.Keys))"
 
-    $result = @{ 
+    $localizedKeywords = $allGherkinKeywords[$cultureName]
+
+    $result = @{
             Feature = (One-Of @($localizedKeywords.Feature | ForEach-Object { $_ + ':' }));
             Background = (One-Of @($localizedKeywords.Background | ForEach-Object { $_ + ':' }));
             Scenario = (One-Of @($localizedKeywords.Scenario | ForEach-Object { $_ + ':' }));
@@ -486,51 +488,48 @@ function Build-GherkinKeywordParsers($cultureName)
 $GherkinKeywordParsers = Build-GherkinKeywordParsers -cultureName $cultureName
 #endregion
 
-# region Grammar from https://github.com/cucumber/gherkin/blob/master/gherkin.berp converted to powershell 
+#region Grammar from https://github.com/cucumber/gherkin/blob/master/gherkin.berp converted to Powershell
 $Comment = ([regex]'\s*#.*$')
 
 $TagLine = Repeat ([regex]'\s*@(\S+)')
 
-$TagsParser = (from_ tagNames in (Repeat (Token $TagLine))), 
+$TagsParser = (from_ tagNames in (Repeat (Token $TagLine))),
               (select_ { @($tagNames | ForEach-Object { $_ }) })
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
 $DescriptionHelper = Repeat (One-Of (Token $Comment), (Token $Other)) -allowZeroRepetition
 
-$TableRow = Token(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]')))
+$TableRow = Token(@(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]'))))
 
 $DataTable = (from_ parsedTableHeader in $TableRow),
              (from_ parsedTableData in (Repeat $TableRow -allowZeroRepetition)),
-             (select_ { 
-                 $tableHeaderNames = @($parsedTableHeader | ForEach-Object { switch ($_) { $Null { '' } default { $_.Trim() } } })
+             (select_ {
+                 $tableHeaderNames = @($parsedTableHeader | Trim-String)
 
                  $parsedTableRows = @($parsedTableData | `
                                     ForEach-Object {
                                         $dataRow = @($_)
 
-                                        if ($dataRow.Length -ne $tableHeaderNames.Length)
-                                        { 
-                                            throw "Table Header $([String]::Join('|', $tableHeaderNames)) has different number of columns compared to the data row $([String]::Join('|', $dataRow))" 
-                                        }
+                                        Verify-That `
+                                            -condition ($dataRow.Length -eq $tableHeaderNames.Length) `
+                                            -message "Table Header $([Environment]::NewLine)| $([String]::Join(' | ', $tableHeaderNames)) |$([Environment]::NewLine) has different number of columns compared to the data row $([Environment]::NewLine)| $([String]::Join(' | ', $dataRow)) |$([Environment]::NewLine)"
 
                                         $resultingRow = @{}
                                         for ($cellIndex = 0; $cellIndex -ne $tableHeaderNames.Length; $cellIndex++)
                                         {
-                                            $cellValue = $dataRow[$cellIndex]
-                                            $trimmedCellValue = switch ($cellValue) { $Null { '' } default { $cellValue.Trim() } } 
-                                            $resultingRow.Add($tableHeaderNames[$cellIndex], $trimmedCellValue)
+                                            $resultingRow.Add($tableHeaderNames[$cellIndex], ($dataRow[$cellIndex] | Trim-String))
                                         }
 
-                                        $resultingRow 
+                                        $resultingRow
                                     })
-                 @{ Header = @($tableHeaderNames); Rows = @($parsedTableRows) } 
+                 @{ Header = @($tableHeaderNames); Rows = @($parsedTableRows) }
              })
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
-$DocString = (Token $DocStringSeparator), 
-             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))) -allowZeroRepetition)), 
+$DocString = (Token $DocStringSeparator),
+             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))) -allowZeroRepetition)),
              (Token $DocStringSeparator),
              (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
@@ -557,11 +556,11 @@ function StepBlock-Parser($stepKeywordParser, $stepType)
 
     return (from_ firstLineInBlock in (SingleStep-Parser (Token (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
            (from_ otherLinesInBlock in (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser)) -allowZeroRepetition)),
-           (select_ { @{ 
-                          BlockType = $stepType; 
-                          Steps = @($firstLineInBlock) + @($otherLinesInBlock) 
-                        } 
-           }.GetNewClosure() ) 
+           (select_ { @{
+                          BlockType = $stepType;
+                          Steps = @($firstLineInBlock) + @($otherLinesInBlock)
+                        }
+           }.GetNewClosure())
 }
 
 $ScenarioStepBlock = One-Of `
@@ -574,13 +573,13 @@ $Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywor
               (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
-$Scenario = (from_ scenarioTags in (Optional $TagsParser)), 
-            (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))), 
+$Scenario = (from_ scenarioTags in (Optional $TagsParser)),
+            (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))),
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
             (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
-$ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)), 
+$ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
                       (Token (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
                       (from_ examplesDescription in $DescriptionHelper),
                       (from_ examplesTable in (Optional $DataTable)),
@@ -591,189 +590,131 @@ $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
                                     ExamplesData = $examplesTable.Rows
                                     }})
 
-
-$ScenarioOutline = (from_ scenarioOutlineName in (Token (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
+$ScenarioOutline = (from_ scenarioTags in (Optional $TagsParser)),
+                   (from_ scenarioOutlineName in (Token (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
                    (from_ scenarioOutlineDescription in $DescriptionHelper),
                    (from_ scenarioOutlineStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
                    (from_ scenarioOutlineExamples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
                    (select_ { @{
                                 Title = $scenarioOutlineName;
                                 Description = $scenarioOutlineDescription;
+                                Tags = $scenarioTags;
                                 StepBlocks = $scenarioOutlineStepBlocks;
                                 SetsOfExamples = $scenarioOutlineExamples;
                                 IsScenarioOutline = $True
                                }})
 
-$Feature_Header = (from_ featureTags in (Optional $TagsParser)), 
-                  (from_ featureName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Feature))), 
+$Feature_Header = (from_ featureTags in (Optional $TagsParser)),
+                  (from_ featureName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
                   (from_ featureDescription in $DescriptionHelper),
                   (select_ { @{ Name = $featureName; Description = $featureDescription; Tags = $featureTags } })
 
-$Feature = (from_ featureHeader in $Feature_Header), 
-           (from_ parsedBackground in (Optional $Background)), 
-           (from_ scenarios in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
-           (select_ { @{ 
-                        Title = $featureHeader.Name; 
-                        Description = $featureHeader.Description; 
-                        Tags = $featureHeader.Tags; 
-                        Background = $parsedBackground; 
-                        Scenarios = $scenarios } })
+$Feature = (from_ featureHeader in $Feature_Header),
+           (from_ parsedBackground in (Optional -parser $Background -orElse @{ StepBlocks = $null })),
+           (from_ allScenarios in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
+           (select_ { @{
+                        Title = $featureHeader.Name;
+                        Description = $featureHeader.Description;
+                        Tags = $featureHeader.Tags;
+                        Background = $parsedBackground;
+                        Scenarios = $allScenarios } })
 
 $GherkinDocument = (from_ parsedFeature in (Optional $Feature)),
                    (EndOfContent),
                    (select_ { $parsedFeature })
 #endregion
 
-#region Running scenarios
-function Setup-GherkinHookInfrastructure
+#region class ScenarioExecutionResults
+function Build-ScenarioExecutionResults($scenario, $scenarioOutcome, $exceptionInfo, $duration)
 {
-    if (-Not ([System.Management.Automation.PSTypeName]'TestRunContext').Type)
-    {
-        Add-Type @'
-using System;
-using System.Collections.Generic;
-using System.Management.Automation;
-using System.Globalization;
+	if ($null -ne $exceptionInfo)
+	{
+        $exceptionDescription = Describe-ErrorRecord -errorRecord $exceptionInfo
+        $message = "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title) $scenarioOutcome. $exceptionDescription"
+        Log-TestRunning $message
+		Write-Host $message
+	}
+	else
+	{
+		Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title) $scenarioOutcome."
+	}
 
-public abstract class GherkinContextBase
-{
-    public bool HasValue(string name)
-    {
-        return _values.ContainsKey(name);
-    }
-
-    public object GetValue(string name)
-    {
-        return _values[name];
-    }
-
-    public void SetValue(string name, object value)
-    {
-        _values.Add(name, value); 
-    }
-
-    public void ModifyValue(string name, ScriptBlock modifyValue)
-    {
-        modifyValue.Invoke(GetValue(name));
-    }
-
-    private readonly IDictionary<string, object> _values = new Dictionary<string, object>();
+	@{ Scenario = $scenario.Title; ScenarioOutcome = $scenarioOutcome; Error = $exceptionInfo; Duration = $duration }
 }
-
-public class TestRunContext : GherkinContextBase
-{
-    public static TestRunContext Current;
-}
-
-public class FeatureContext : GherkinContextBase
-{
-	public PSObject FeatureInfo;
-	
-    public static FeatureContext Current;
-}
-
-public class ScenarioContext : GherkinContextBase
-{
-    public PSObject ScenarioInfo;
-
-    public PSObject CurrentScenarioBlock;
-
-    public void Pending()
-    {
-        throw new NotSupportedException("Step definition is not properly implemented.");
-    }
-	
-    public static ScenarioContext Current;
-}
-'@
-    }
-
-    [TestRunContext]::Current = New-Object TestRunContext
-}
-
-function Get-GherkinHooks($hookType)
-{
-    if (-Not (Test-Path variable:global:GherkinHooksDictionary03C98485EFD84C888750187736C181A7))
-    {
-        return @()
-    }
-
-    $hooksDictionary = Get-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-    if (-Not ($hooksDictionary.Contains($hookType)))
-    {
-        return @()
-    }
-
-    return $hooksDictionary[$hookType]
-}
-
-function Tags-AllowHookInvocation($hookType, $requiredTags)
-{
-    if (@($requiredTags | Except-Nulls).Length -eq 0)
-    {
-        return $True
-    }
-
-    switch -wildcard ($hookType)
-    {
-        '*TestRun' { $True } 
-        '*Feature' { @([FeatureContext]::Current.FeatureInfo.Tags | Where { $requiredTags -contains $_ }).Length -gt 0 }
-        default    { @([ScenarioContext]::Current.ScenarioInfo.Tags | Where { $requiredTags -contains $_ }).Length -gt 0 }
-    }
-}
+#endregion
 
 function Invoke-GherkinHooks($hookType)
 {
-    foreach ($hookData in (Get-GherkinHooks -hookType $hookType))
+    function Tags-AllowHookInvocation([array] $requiredTags)
     {
-        if (Tags-AllowHookInvocation -hookType $hookType -requiredTags $hookData.Tags)
+        if ($requiredTags.Length -eq 0 -or $hookType.EndsWith('TestRun'))
         {
-            & $hookData.Script 
+            return $True
         }
-    }
-}
 
-function Get-GherkinStepDefinitions($stepType)
-{
-    if (-Not (Test-Path variable:global:GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7))
+        $currentTags = switch -wildcard ($hookType)
+        {
+            '*Feature' { [FeatureContext]::Current.FeatureInfo.Tags }
+            default    { [ScenarioContext]::Current.ScenarioInfo.Tags }
+        }
+
+        return @($currentTags | Where-Object { $requiredTags -contains $_ }).Length -gt 0
+    }
+
+    switch ($hookType)
     {
-        return @()
+        'SetupTestRun' { Log-TestRunning 'Starting test run' }
+        'SetupFeature' { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        'SetupScenario' { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
     }
 
-    $stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-    return @($stepDefinitionDictionary[$stepType] | Except-Nulls)
+    foreach ($hookData in (Get-GherkinHooks -hookType $hookType | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
+    {
+        & $hookData.Script
+    }
+
+    switch ($hookType)
+    {
+        'TeardownTestRun' { Log-TestRunning 'Finished test run' }
+        'TeardownFeature' { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        'TeardownScenario' { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+    }
 }
 
 function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
 {
-    $stepDefinitions = Get-GherkinStepDefinitions -stepType $stepType
-    $matchingStepDefinitions = @($stepDefinitions | `
+    $stepDefinitionsOfGivenType = switch ($stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly -ErrorAction Ignore)
+    {
+        $null { @() }
+        default { @($stepDefinitionDictionary[$stepType] | Except-Nulls) }
+    }
+
+    $matchingStepDefinitions = @($stepDefinitionsOfGivenType | `
                                  ForEach-Object { @{ StepPattern = $_.StepPattern; StepPatternMatchingResult = $_.StepPattern.Match($stepText); StepScript = $_.StepScript } } | `
-                                 Where { $_.StepPatternMatchingResult.Success})
+                                 Where-Object { $_.StepPatternMatchingResult.Success})
+
     switch ($matchingStepDefinitions.Length) {
-        0 { 
-            $Null 
+        0 {
+            throw "Could not locate step definition for the step [$stepText] of type [$stepType]."
         }
-        1 { 
+        1 {
             $matchingStep = $matchingStepDefinitions[0]
             $matchedGroups = $matchingStep.StepPatternMatchingResult.Groups
-            $argumentsNumber = @($matchedGroups).Length
-            $stepArguments = @(@($matchedGroups)[1..$argumentsNumber]) + @($extraArgument | Except-Nulls)
-            @{ StepScript = $matchingStep.StepScript; StepArguments = $stepArguments }
+            $matchedArgumentValues = switch ($argumentsNumber = $matchedGroups.Count)
+                {
+                    { $argumentsNumber -gt 1 } { @(@($matchedGroups)[1..($argumentsNumber - 1)] | ForEach-Object { $_.ToString() }) }
+                    default { @() }
+                }
+            @{ StepPattern = $matchingStep.StepPattern; StepScript = $matchingStep.StepScript; StepArguments = @($matchedArgumentValues) + @($extraArgument | Except-Nulls) }
         }
-        default { 
+        default {
             throw @"
-The step with text [$stepText] is matched by each one of the following StepDefinition patterns: 
+The step with text [$stepText] is matched by each one of the following StepDefinition patterns:
 $([String]::Join([Environment]::NewLine, @($matchingStepDefinitions | ForEach-Object { "$($_.StepPattern)" })))
 Please refine the pattern's regex-es so that each step text was matched by exaqclty one pattern
 "@
         }
     }
-}
-
-function Report-MissingStepDefinition($stepType, $stepText)
-{
-    Write-Host "Could not locate step definition for the step [$stepText] of type [$stepType]."
 }
 
 function Run-ScenarioStep($stepType)
@@ -783,16 +724,17 @@ function Run-ScenarioStep($stepType)
         $stepText = $_.StepText
         $extraArgument = $_.ExtraArgument
         $stepBinding = Bind-ToStepExecuter -stepType $stepType -stepText $stepText -extraArgument $extraArgument
-        if ($stepBinding -ne $Null)
+        Log-TestRunning "Starting executing step '$($stepBinding.StepPattern)' with arguments $($stepBinding.StepArguments)"
+        if ($showCurrentStepInConsoleTitle)
         {
-            Invoke-GherkinHooks -hookType SetupScenarioStep
-            Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments
-            Invoke-GherkinHooks -hookType TeardownScenarioStep
+            $host.ui.RawUI.WindowTitle = $_.StepText
         }
-        else
-        {
-            Report-MissingStepDefinition -stepType $stepType -stepText $stepText
-        }
+
+        $stepStopwatch = [system.diagnostics.stopwatch]::StartNew()
+        Invoke-GherkinHooks -hookType SetupScenarioStep
+        Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments
+        Invoke-GherkinHooks -hookType TeardownScenarioStep
+        Log-TestRunning "Finished executing step '$($stepBinding.StepPattern)' (took $([int]$stepStopwatch.Elapsed.TotalSeconds) seconds)."
     }
 }
 
@@ -805,179 +747,184 @@ filter Run-ScenarioBlock
     Invoke-GherkinHooks -hookType TeardownScenarioBlock
 }
 
-function IsNull-OrEmptyArray($collection)
-{
-    $collection -eq $Null -or ($collection -is [array] -and $collection.Length -eq 0)
-}
-
 function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
 {
-    Verify-That -condition ($backgroundBlocks -eq $Null -or $backgroundBlocks -is [array]) -message '-backgroundBlocks is not an array'
-    Verify-That -condition ($scenarioBlocks  -eq $Null -or $scenarioBlocks -is [array]) -message '-scenarioBlocks is not an array'
+    $currentBlockType = $null
+    $encounteredBlocks = 0
+    $encounteredSteps = 0
+    @(@($backgroundBlocks | Except-Nulls) + @($scenarioBlocks | Except-Nulls) | `
+        ForEach-Object {
+            $it = $_
+            $it.Steps | ForEach-Object { @{ BlockType = $it.BlockType; Step = $_ } }
+        } | `
+        ForEach-Object {
+            if ($_.BlockType -ne $currentBlockType)
+            {
+                $currentBlockType = $_.BlockType
+                $encounteredBlocks = $encounteredBlocks + 1
+            }
 
-    if (IsNull-OrEmptyArray $backgroundBlocks)
-    {
-        return $scenarioBlocks
-    }
-
-    if (IsNull-OrEmptyArray $scenarioBlocks)
-    {
-        return $backgroundBlocks
-    }
-
-    $lastBackgroundBlockIsOfSameTypeAsFirstScenarioBlock = ($backgroundBlocks[-1].BlockType -eq $scenarioBlocks[0].BlockType)
-    if (-Not $lastBackgroundBlockIsOfSameTypeAsFirstScenarioBlock)
-    {
-        return @($backgroundBlocks) + @($scenarioBlocks)
-    }
-
-    $result = @()
-    for ($i = 0; $i -lt $backgroundBlocks.Length - 1; $i++)
-    {
-        $result += @($backgroundBlocks[$i])
-    }
-
-    $joinedLastBackgroundBlockAndFirstScenarioBlockSteps = @($backgroundBlocks[$backgroundBlocks.Length - 1].Steps) + @($scenarioBlocks[0].Steps)
-    $result += @(@{ BlockType = $scenarioBlocks[0].BlockType; Steps = $joinedLastBackgroundBlockAndFirstScenarioBlockSteps })
-    $result += @($scenarioBlocks[1..($scenarioBlocks.Length - 1)])
-
-    return @($result)
-}
-
-function Scenario-ShouldBeIgnoredAccordingToItsTags($scenarioTags)
-{
-    if ($scenarioTags -contains 'ignore')
-    {
-        return $True
-    }
-
-    if ([string]::IsNullOrEmpty($tags))
-    {
-        return $False
-    }
-
-    $tagsThatMustBePresent = @(@($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('@') })
-    $tagsThatMustBeAbsent = @(@($tags -split ',') | Where { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('~@') })
-
-    $tagsThatMustBePresentAndScenarioTagsIntersection = @( $tagsThatMustBePresent | Where { $scenarioTags -contains $_.Trim(@('@', '~')) } )
-    $tagsThatMustBeAbsentAndScenarioTagsIntersection = @( $tagsThatMustBeAbsent | Where { $scenarioTags -contains $_.Trim(@('@', '~')) } )
-
-    $scenarioShouldBeExecuted = `
-        (($tagsThatMustBePresent.Length -eq 0) -or ($tagsThatMustBePresentAndScenarioTagsIntersection.Length -gt 0)) -and `
-        (($tagsThatMustBeAbsent.Length -eq 0) -or ($tagsThatMustBeAbsentAndScenarioTagsIntersection.Length -eq 0))
-
-    return (-Not $scenarioShouldBeExecuted)
+            @{ BlockType = $_.BlockType; Step = $_.Step; BlockNumber = $encounteredBlocks; StepNumber = ++$encounteredSteps }
+        }) | `
+        Group-Object -Property { $_.BlockNumber } | `
+        Sort-Object -Property Name | `
+        ForEach-Object {
+            @{
+                BlockType = @($_.Group)[0].BlockType;
+                Steps = @($_.Group | Sort-Object -Property { $_.StepNumber } | ForEach-Object { $_.Step })
+            }
+        }
 }
 
 function Run-SingleScenario($featureTags, $backgroundBlocks)
 {
     process
     {
-        try
+        function Scenario-ShouldBeIgnoredAccordingToItsTags($scenarioTags)
         {
-            $scenario = $_
+            if ($scenarioTags -contains 'ignore')
+            {
+                return $True
+            }
 
+            if ([string]::IsNullOrEmpty($tags))
+            {
+                return $False
+            }
+
+            $tagsThatMustBePresent = @(@($tags -split ',') | Where-Object { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('@') })
+            $tagsThatMustBeAbsent = @(@($tags -split ',') | Where-Object { -Not ([string]::IsNullOrEmpty($_)) -and $_.StartsWith('~@') })
+
+            $tagsThatMustBePresentAndScenarioTagsIntersection = @( $tagsThatMustBePresent | Where-Object { $scenarioTags -contains $_.Trim(@('@', '~')) } )
+            $tagsThatMustBeAbsentAndScenarioTagsIntersection = @( $tagsThatMustBeAbsent | Where-Object { $scenarioTags -contains $_.Trim(@('@', '~')) } )
+
+            $scenarioShouldBeExecuted = `
+                (($tagsThatMustBePresent.Length -eq 0) -or ($tagsThatMustBePresentAndScenarioTagsIntersection.Length -gt 0)) -and `
+                (($tagsThatMustBeAbsent.Length -eq 0) -or ($tagsThatMustBeAbsentAndScenarioTagsIntersection.Length -eq 0))
+
+            return (-Not $scenarioShouldBeExecuted)
+        }
+
+        function Run-SingleScenarioCore($scenario, $stopwatch)
+        {
             $scenario.Tags = @($featureTags | Except-Nulls) + @($scenario.Tags | Except-Nulls)
             if (Scenario-ShouldBeIgnoredAccordingToItsTags -scenarioTags $scenario.Tags)
             {
-                return
+                return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome $ScenarioOutcome.Ignored -exceptionInfo $null -duration [timespan]::Zero
             }
 
             [ScenarioContext]::Current = New-Object ScenarioContext
-            [ScenarioContext]::Current.ScenarioInfo = $scenario 
+            [ScenarioContext]::Current.ScenarioInfo = $scenario
 
-            $script:totalScenarios++
             Invoke-GherkinHooks -hookType SetupScenario
-            Join-ScenarioBlocks -backgroundBlocks @($backgroundBlocks | Except-Nulls) -scenarioBlocks @($scenario.ScenarioBlocks | Except-Nulls) | Run-ScenarioBlock
+            Join-ScenarioBlocks -backgroundBlocks $backgroundBlocks -scenarioBlocks $scenario.ScenarioBlocks | Run-ScenarioBlock
             Invoke-GherkinHooks -hookType TeardownScenario
-            $script:succeededScenarios++
-            Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title)`t`tsucceeded."
+
+            $failedAssertions = Get-AllFailedAssertionsInfo
+            if ($null -ne $failedAssertions)
+            {
+                throw $failedAssertions
+            }
+
+            return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome $ScenarioOutcome.Succeeded -exceptionInfo $null -duration $stopwatch.Elapsed
         }
-        catch
+
+        $currentScenario = $_
+        $stopwatch =  [system.diagnostics.stopwatch]::StartNew()
+
+        if ($failFast)
         {
-            Write-Host "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title)`t`tfailed."
+            return Run-SingleScenarioCore -scenario $currentScenario -stopwatch $stopwatch
+        }
+        else
+        {
+            try
+            {
+                return Run-SingleScenarioCore -scenario $currentScenario -stopwatch $stopwatch
+            }
+            catch
+            {
+                return Build-ScenarioExecutionResults -scenario $currentScenario -scenarioOutcome $ScenarioOutcome.Failed -exceptionInfo $PSItem.Exception -duration $stopwatch.Elapsed
+            }
         }
     }
 }
 
-function Run-SingleScenarioOrScenarioOutline($featureTags, $backgroundBlocks)
+filter Expand-ScenarioOutline
 {
-    process
+    if (-not $_.IsScenarioOutline)
     {
-        $scenario = $_
-        if ($scenario.IsScenarioOutline)
-        {
-            $scenario.SetsOfExamples | `
+        return $_
+    }
+
+    $scenarioOutline = $_
+    $scenarioOutline.SetsOfExamples | `
+        ForEach-Object {
+            $currentSetOfExamples = $_
+
+            $currentSetOfExamples.ExamplesData | `
                 ForEach-Object {
-                    $currentSetOfExamples = $_
+                    $currentExample = $_
 
-                    $currentSetOfExamples.ExamplesData | `
-                        ForEach-Object { 
-                            $currentExample = $_
-
-                            $scenarioBlocks = $scenario.StepBlocks | `
+                    $scenarioBlocks = $scenarioOutline.StepBlocks | `
+                        ForEach-Object {
+                            $currentStepBlock = $_
+                            $steps = $currentStepBlock.Steps | `
                                 ForEach-Object {
-                                    $currentStepBlock = $_
-                                    $steps = $currentStepBlock.Steps | `
-                                        ForEach-Object {
-                                            [string] $stepText = $_.StepText
-                                            $extraArgument = $_.ExtraArgument
+                                    [string] $stepText = $_.StepText
+                                    $extraArgument = $_.ExtraArgument
 
-                                            foreach ($columnName in $currentSetOfExamples.ExampleVariableNames)
+                                    foreach ($columnName in $currentSetOfExamples.ExampleVariableNames)
+                                    {
+                                        $exampleColumnValue = $currentExample[$columnName]
+                                        $stepText = $stepText.Replace("<$columnName>", $exampleColumnValue)
+
+                                        if ($Null -ne $extraArgument)
+                                        {
+                                            if ($extraArgument -is [string])
                                             {
-                                                $exampleColumnValue = $currentExample[$columnName]
-                                                $stepText = $stepText.Replace("<$columnName>", $exampleColumnValue)
-
-                                                if ($extraArgument -ne $Null)
-                                                {
-                                                    if ($extraArgument -is [string])
-                                                    {
-                                                        $extraArgument = $extraArgument.Replace("<$columnName>", $exampleColumnValue)
-                                                    }
-                                                    else
-                                                    {
-                                                        $extraArgument = @{ 
-                                                            Header = @($extraArgument.Header | ForEach-Object { $_.Replace("<$columnName>", $exampleColumnValue) }); 
-                                                            Rows = @($extraArgument.Rows | `
+                                                $extraArgument = $extraArgument.Replace("<$columnName>", $exampleColumnValue)
+                                            }
+                                            else
+                                            {
+                                                $extraArgument = @{
+                                                    Header = @($extraArgument.Header | ForEach-Object { $_.Replace("<$columnName>", $exampleColumnValue) });
+                                                    Rows = @($extraArgument.Rows | `
+                                                                ForEach-Object {
+                                                                    $originalRow = $_
+                                                                    $modifiedRow = @{}
+                                                                    $originalRow.GetEnumerator() | `
                                                                         ForEach-Object {
-                                                                            $originalRow = $_
-                                                                            $modifiedRow = @{}
-                                                                            $originalRow.GetEnumerator() | `
-                                                                                ForEach-Object { 
-                                                                                    $originalKey = $_.Key
-                                                                                    $originalValue = $_.Value
-                                                                                    $modifiedRow.Add($originalKey.Replace("<$columnName>", $exampleColumnValue), $originalValue.Replace("<$columnName>", $exampleColumnValue)) 
-                                                                                }
+                                                                            $originalKey = $_.Key
+                                                                            $originalValue = $_.Value
+                                                                            $modifiedRow.Add($originalKey.Replace("<$columnName>", $exampleColumnValue), $originalValue.Replace("<$columnName>", $exampleColumnValue)) 
+                                                                        }
 
-                                                                            $modifiedRow
-                                                                        }) 
-                                                        } 
-                                                    }
+                                                                    $modifiedRow
+                                                                })
                                                 }
                                             }
-
-                                            @{ StepText = $stepText; ExtraArgument = $extraArgument }
                                         }
+                                    }
 
-                                    @{ BlockType = $currentStepBlock.BlockType; Steps = @($steps) }
+                                    @{ StepText = $stepText; ExtraArgument = $extraArgument }
                                 }
 
-                            @{ 
-                                Title = $scenario.Title; 
-                                Description = $currentSetOfExamples.Description; 
-                                Tags = $currentSetOfExamples.Tags; 
-                                ScenarioBlocks = @($scenarioBlocks); 
-                                IsScenarioOutline = $False 
-                            } 
-                        } | `
-                        Run-SingleScenario -featureTags $featureTags -backgroundBlocks $backgroundBlocks 
+                            @{ BlockType = $currentStepBlock.BlockType; Steps = @($steps) }
+                        }
+
+                    $firstParameterName = $currentSetOfExamples.ExampleVariableNames[0]
+                    $exampleDescription = "$firstParameterName`: $($currentExample[$firstParameterName])"
+
+                    @{
+                        Title = "$($scenarioOutline.Title) ($exampleDescription)";
+                        Description = $currentSetOfExamples.Description;
+                        Tags = ($scenarioOutline.Tags + $currentSetOfExamples.Tags);
+                        ScenarioBlocks = @($scenarioBlocks);
+                        IsScenarioOutline = $False
+                    }
                 }
         }
-        else
-        {
-            $scenario | Run-SingleScenario -featureTags $featureTags -backgroundBlocks $backgroundBlocks
-        }
-    }
 }
 
 function Run-FeatureScenarios($featureFile, $feature)
@@ -985,34 +932,63 @@ function Run-FeatureScenarios($featureFile, $feature)
     [FeatureContext]::Current = New-Object FeatureContext
     [FeatureContext]::Current.FeatureInfo = $feature
     Invoke-GherkinHooks -hookType SetupFeature
-    @($feature.Scenarios | Except-Nulls) | Run-SingleScenarioOrScenarioOutline -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks
+	$scenarioExecutionResults = @()
+    $feature.Scenarios | `
+        Except-Nulls | `
+        Expand-ScenarioOutline | `
+		Run-SingleScenario -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks | `
+		ForEach-Object { $scenarioExecutionResults += @($_) }
     Invoke-GherkinHooks -hookType TeardownFeature
+	@{ Feature = $feature; ScenarioExecutionResults = $scenarioExecutionResults }
 }
 #endregion
 
-Validate -parameters @( {$scenarioFiles} )
-
-if ((-Not [string]::IsNullOrEmpty($logParsingToFile)) -and (Test-Path $logParsingToFile))
+function Clear-LogFile($filePath)
 {
-    Remove-Item $logParsingToFile
+    if ((-Not [string]::IsNullOrEmpty($filePath)) -and (Test-Path $filePath))
+    {
+        Remove-Item $filePath
+    }
 }
 
-$parsedScenarios = @(List-ScenarioFiles $scenarioFiles | ForEach-Object { 
+Validate -parameters @( {$scenarios} )
+
+Clear-LogFile -filePath $logParsingToFile
+Clear-LogFile -filePath $logTestRunningToFile
+
+if (-Not $doNotCleanupGherkinRunningInfrastructure)
+{
+	Clean-GherkinRunningInfrastructure
+}
+
+Register-AvailableTestParamers $args
+
+if (-not [string]::IsNullOrEmpty($stepDefinitions))
+{
+	List-Files $stepDefinitions | Where-Object { $_.EndsWith('.ps1') } | ForEach-Object { . $_ }
+}
+
+Given-When ([regex] 'Halt\:(.*)') {
+    param ($message)
+    [void](Read-Host "$message$([Environment]::NewLine)Press Enter to continue...")
+}
+
+$parsedScenarios = @(List-Files $scenarios | ForEach-Object {
         $scriptFilePath = $_
-        $scriptFileContent = Build-FeatureFileContent -textLines (Get-Content $scriptFilePath) -currentLineNumber -1 -offsetInCurrentLine 0
-        $parsingResult = Parse-ContentWithParser -content $scriptFileContent -parser $GherkinDocument 
+        $scriptFileContent = Build-FeatureFileContent -textLines @(Get-Content $scriptFilePath) -currentLineNumber -1 -offsetInCurrentLine 0
+        $parsingResult = Parse-ContentWithParser -content $scriptFileContent -parser $GherkinDocument
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
 
-Setup-GherkinHookInfrastructure
+Setup-TestRunContext
 
-if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $parsedScenarios[0].Feature -ne $Null))
+$featureExecutionResults = @()
+
+if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $Null -ne $parsedScenarios[0].Feature))
 {
-    Invoke-GherkinHooks -hookType SetupTestRun 
-    $parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature }
+    Invoke-GherkinHooks -hookType SetupTestRun
+    $featureExecutionResults = @($parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature })
     Invoke-GherkinHooks -hookType TeardownTestRun
 }
 
-Write-Host "Total scenarios: $totalScenarios. Succeeded scenarios: $succeededScenarios, Failed scenarios: $($totalScenarios - $succeededScenarios)"
-
-return $parsedScenarios 
+return $featureExecutionResults
