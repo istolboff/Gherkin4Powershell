@@ -109,6 +109,11 @@ public abstract class GherkinContextBase
         _values[name] = value;
     }
 
+    public void ModifyValue(string name, ScriptBlock modifyValue)
+    {
+        modifyValue.Invoke(GetValue(name));
+    }
+
     private readonly IDictionary<string, object> _values = new Dictionary<string, object>();
 }
 
