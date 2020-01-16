@@ -550,7 +550,7 @@ function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
            (select_ { $restOfLine | Trim-String })
 }
 
-function StepBlock-Parser($stepKeywordParser, $stepType)
+function StepBlock-Parser($stepKeywordParser, [StepType] $stepType)
 {
     $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Token (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
 
@@ -564,9 +564,9 @@ function StepBlock-Parser($stepKeywordParser, $stepType)
 }
 
 $ScenarioStepBlock = One-Of `
-                        (StepBlock-Parser $GherkinKeywordParsers.Given '[StepTypeEnum]::Given'), `
-                        (StepBlock-Parser $GherkinKeywordParsers.When '[StepTypeEnum]::When'), `
-                        (StepBlock-Parser $GherkinKeywordParsers.Then '[StepTypeEnum]::Then')
+                        (StepBlock-Parser $GherkinKeywordParsers.Given ([StepType]::Given)), `
+                        (StepBlock-Parser $GherkinKeywordParsers.When ([StepType]::When)), `
+                        (StepBlock-Parser $GherkinKeywordParsers.Then ([StepType]::Then))
 
 $Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Background))),
               (from_ backgroundDescription in $DescriptionHelper),
@@ -625,7 +625,7 @@ $GherkinDocument = (from_ parsedFeature in (Optional $Feature)),
 #endregion
 
 #region class ScenarioExecutionResults
-function Build-ScenarioExecutionResults($scenario, $scenarioOutcome, $exceptionInfo, $duration)
+function Build-ScenarioExecutionResults($scenario, [ScenarioOutcome] $scenarioOutcome, $exceptionInfo, $duration)
 {
 	if ($null -ne $exceptionInfo)
 	{
@@ -810,7 +810,7 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             $scenario.Tags = @($featureTags | Except-Nulls) + @($scenario.Tags | Except-Nulls)
             if (Scenario-ShouldBeIgnoredAccordingToItsTags -scenarioTags $scenario.Tags)
             {
-                return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome $ScenarioOutcome.Ignored -exceptionInfo $null -duration [timespan]::Zero
+                return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome ([ScenarioOutcome]::Ignored) -exceptionInfo $null -duration [timespan]::Zero
             }
 
             [ScenarioContext]::Current = New-Object ScenarioContext
@@ -826,7 +826,7 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
                 throw $failedAssertions
             }
 
-            return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome $ScenarioOutcome.Succeeded -exceptionInfo $null -duration $stopwatch.Elapsed
+            return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome ([ScenarioOutcome]::Succeeded) -exceptionInfo $null -duration $stopwatch.Elapsed
         }
 
         $currentScenario = $_
@@ -844,7 +844,7 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             }
             catch
             {
-                return Build-ScenarioExecutionResults -scenario $currentScenario -scenarioOutcome $ScenarioOutcome.Failed -exceptionInfo $PSItem.Exception -duration $stopwatch.Elapsed
+                return Build-ScenarioExecutionResults -scenario $currentScenario -scenarioOutcome ([ScenarioOutcome]::Failed) -exceptionInfo $PSItem.Exception -duration $stopwatch.Elapsed
             }
         }
     }

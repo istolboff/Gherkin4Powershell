@@ -40,34 +40,22 @@ function Describe-ErrorRecord($errorRecord)
 
     $description
 }
-
-function Define-Enumeration
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$True, Position=0)]
-        [string][ValidateNotNullOrEmpty()]$enumTypeName,
-
-        [Parameter(Mandatory=$true, Position=1)]
-        [array][ValidateNotNullOrEmpty()]$enumMemberNames)
-
-
-	if (-not (Test-Path "variable:script:$enumTypeName"))
-	{
-        $enumMembers = @{}
-        foreach ($enumMemberName in $enumMemberNames)
-        {
-            $enumMembers.Add($enumMemberName, "[$enumTypeName]::$enumMemberName")
-        }
-
-        Set-Variable -Name $enumTypeName -Value $enumMembers -Option Constant -Scope script -Force
-	}
-}
 #endregion
 
-#region Enumeartions
-Define-Enumeration -enumTypeName StepTypeEnum -enumMemberNames Given, When, Then
-Define-Enumeration -enumTypeName ScenarioOutcome -enumMemberNames Failed, Ignored, Succeeded
+#region Enumerations
+enum StepType
+{
+    Given
+    When
+    Then
+}
+
+enum ScenarioOutcome
+{
+    Failed
+    Ignored
+    Succeeded
+}
 #endregion
 
 #region Gherkin Hooks Infrastructure
@@ -283,7 +271,7 @@ function AfterStep([scriptblock] $hookScript, [array] $tags)
 #endregion
 
 #region Step definitions
-function Add-GherkinStepDefinition($stepType, [regex]$stepPattern, [scriptblock]$stepScript)
+function Add-GherkinStepDefinition([StepType] $stepType, [regex]$stepPattern, [scriptblock]$stepScript)
 {
     if (-Not (Test-Path variable:global:GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7))
     {
@@ -291,9 +279,9 @@ function Add-GherkinStepDefinition($stepType, [regex]$stepPattern, [scriptblock]
             -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 `
             -Scope Global `
             -Value @{ 
-                "$($StepTypeEnum.Given)" = (New-Object System.Collections.ArrayList); 
-                "$($StepTypeEnum.When)" = (New-Object System.Collections.ArrayList); 
-                "$($StepTypeEnum.Then)" = (New-Object System.Collections.ArrayList)
+                [StepType]::Given = (New-Object System.Collections.ArrayList); 
+                [StepType]::When = (New-Object System.Collections.ArrayList); 
+                [StepType]::Then = (New-Object System.Collections.ArrayList)
             }
     }
 
@@ -304,17 +292,17 @@ function Add-GherkinStepDefinition($stepType, [regex]$stepPattern, [scriptblock]
 
 function Given([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType $StepTypeEnum.Given -stepPattern $stepPattern -stepScript $stepScript
+    Add-GherkinStepDefinition -stepType ([StepType]::Given) -stepPattern $stepPattern -stepScript $stepScript
 }
 
 function When([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType $StepTypeEnum.When -stepPattern $stepPattern -stepScript $stepScript
+    Add-GherkinStepDefinition -stepType ([StepType]::When) -stepPattern $stepPattern -stepScript $stepScript
 }
 
 function Then([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType $StepTypeEnum.Then -stepPattern $stepPattern -stepScript $stepScript
+    Add-GherkinStepDefinition -stepType ([StepType]::Then) -stepPattern $stepPattern -stepScript $stepScript
 }
 
 function Given-When([regex]$stepPattern, [scriptblock] $stepScript)

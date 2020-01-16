@@ -50,7 +50,7 @@ function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectF
 
 		if ($featureExecutionResults.Length -gt 0)
 		{
-			$failedScenarios = @($featureExecutionResults[0].ScenarioExecutionResults | Where-Object { $_.ScenarioOutcome -eq $ScenarioOutcome.Failed })
+			$failedScenarios = @($featureExecutionResults[0].ScenarioExecutionResults | Where-Object { $_.ScenarioOutcome -eq [ScenarioOutcome]::Failed })
 			if (-not $expectFailures -and $failedScenarios.Length -gt 0)
 			{
 				$errors = @($failedScenarios | ForEach-Object { "Name: $($_.Scenario) Error: $($_.Error.ToString())" })
@@ -125,8 +125,10 @@ function should
     if (($args.Length -gt 5) -and ($Null -eq (Compare-Object -ReferenceObject $args[0..4] -DifferenceObject 'result', 'in', 'the', 'following', 'failure')))
     {
         $executionResults = $inputAsArray[0].ExecutionResults
-        if ($executionResults.ScenarioOutcome -ne $ScenarioOutcome.Failed)
+        if ($executionResults.ScenarioOutcome -ne [ScenarioOutcome]::Failed)
         {
+            Write-Host "`$executionResults.ScenarioOutcome = $($executionResults.ScenarioOutcome)"
+            Write-Host "$($executionResults.ScenarioOutcome.GetType())"
             throw "Test '$testDescription' failed: the scenario in the feature file was supposed to fail, but it didn't. "
         }
 
@@ -151,15 +153,15 @@ function Step([switch]$given, [switch]$when, [switch]$then, $stepText, $tableArg
 {
     if ($given)
     {
-        $stepType = $StepTypeEnum.Given
+        $stepType = [StepType]::Given
     }
     elseif ($when)
     {
-        $stepType = $StepTypeEnum.When
+        $stepType = [StepType]::When
     }
     elseif ($then)
     {
-        $stepType = $StepTypeEnum.Then
+        $stepType = [StepType]::Then
     }
     else
     {
@@ -220,22 +222,22 @@ function Scenario($withContext, $with)
 
 function GivenBlock($with)
 {
-    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Given }) -and_ (Hook 'AfterScenarioBlock')
+    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = [StepType]::Given }) -and_ (Hook 'AfterScenarioBlock')
 }
 
 function WhenBlock($with)
 {
-    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.When }) -and_ (Hook 'AfterScenarioBlock')
+    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = [StepType]::When }) -and_ (Hook 'AfterScenarioBlock')
 }
 
 function ThenBlock($with)
 {
-    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = $StepTypeEnum.Then }) -and_ (Hook 'AfterScenarioBlock')
+    Insert $with -between (Hook 'BeforeScenarioBlock' -withContext @{ BlockType = [StepType]::Then }) -and_ (Hook 'AfterScenarioBlock')
 }
 
 function GivenStep($stepText, $with)
 {
-    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Given }),
+    (Hook 'BeforeStep' -withContext @{ StepType = [StepType]::Given }),
     (Step -given $stepText -tableArgument $with),
     (Hook 'AfterStep')
 }
@@ -247,7 +249,7 @@ function Single-GivenStep($stepText, $with)
 
 function WhenStep($stepText, $with, $pyStringArgument)
 {
-    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.When }),
+    (Hook 'BeforeStep' -withContext @{ StepType = [StepType]::When }),
     (Step -when $stepText -tableArgument $with -pyStringArgument $pyStringArgument),
     (Hook 'AfterStep')
 }
@@ -259,7 +261,7 @@ function Single-WhenStep($stepText, $with, $pyStringArgument)
 
 function ThenStep($stepText, $with)
 {
-    (Hook 'BeforeStep' -withContext @{ StepType = $StepTypeEnum.Then }),
+    (Hook 'BeforeStep' -withContext @{ StepType = [StepType]::Then }),
     (Step -then $stepText -tableArgument $with),
     (Hook 'AfterStep')
 }
