@@ -157,58 +157,54 @@ class MonadicParsing
 {
     static [ParsingResult] ParseWith($parser, [FeatureFileContent] $content)
     {
-        if ($parser -is [scriptblock])
+        switch ($null)
         {
-            return & $parser $content
-        }
-    
-        if ($parser -is [string])
-        {
-            $patternLength = $parser.Length
-            $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-            if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
-            {
-                Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-                return $Null
+            { $parser -is [scriptblock] } {
+                return & $parser $content 
             }
-    
-            Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-            return [ParsingResult]::new($parser, $content.Skip($patternLength))
-        }
-    
-        if ($parser -is [regex])
-        {
-            $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-            $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
-            if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
-            {
-                Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-                return $Null
-            }
-    
-            $parsedValue = $matchingResult.Groups[1].Value
-            Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
-            return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
-        }
-    
-        if ($parser -is [array])
-        {
-            Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers' 
-            [ParsingResult] $parsingResult = $null
-            foreach ($nextParser in $parser)
-            {
-                $parsingResult = [MonadicParsing]::ParseWith($nextParser, $content)
-                if ($Null -eq $parsingResult)
+            { $parser -is [string] } {
+                $patternLength = $parser.Length
+                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+                if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
                 {
+                    Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
                     return $Null
                 }
-    
-                $content = $parsingResult.Rest
+        
+                Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
+                return [ParsingResult]::new($parser, $content.Skip($patternLength))
             }
-    
-            return $parsingResult
+            { $parser -is [regex] } {
+                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+                $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
+                if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
+                {
+                    Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
+                    return $Null
+                }
+        
+                $parsedValue = $matchingResult.Groups[1].Value
+                Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
+                return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
+            }
+            { $parser -is [array] } {
+                Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers' 
+                [ParsingResult] $parsingResult = $null
+                foreach ($nextParser in $parser)
+                {
+                    $parsingResult = [MonadicParsing]::ParseWith($nextParser, $content)
+                    if ($Null -eq $parsingResult)
+                    {
+                        return $Null
+                    }
+        
+                    $content = $parsingResult.Rest
+                }
+        
+                return $parsingResult
+            }
         }
-    
+
         throw "Do not know how to parse with $parser of type $($parser.GetType())"
     }
 }
