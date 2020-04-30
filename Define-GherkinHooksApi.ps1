@@ -60,6 +60,46 @@ enum ScenarioOutcome
 }
 #endregion
 
+#region [TestRun|Feature|Scenario]Context
+class GherkinContextBase 
+{
+    [System.Collections.Generic.IDictionary[string, object]] hidden $_values = [System.Collections.Generic.Dictionary[string, object]]::new()
+
+    [bool] HasValue([string] $name) { return $this._values.ContainsKey($name) }
+
+    [object] GetValue([string] $name) { return $this._values[$name] }
+
+    [void] SetValue([string] $name, [object] $value) { $this._values.Add($name, $value) }
+
+    [void] UpdateValue([string] $name, [object] $value) { $this._values[$name] = $value }
+
+    [void] ModifyValue([string] $name, [ScriptBlock] $modifyValue) { & $modifyValue $this.GetValue($name) }
+}
+
+class TestRunContext : GherkinContextBase
+{
+    static [TestRunContext] $Current
+}
+
+class FeatureContext : GherkinContextBase
+{
+    [PSObject] $FeatureInfo
+
+    static [FeatureContext] $Current
+}
+
+class ScenarioContext : GherkinContextBase
+{
+    [PSObject] $ScenarioInfo
+
+    [PSObject] $CurrentScenarioBlock
+
+    [void] Pending() { throw 'Step definition is not properly implemented.' }
+
+    static [ScenarioContext] $Current
+}
+#endregion
+
 #region Gherkin Hooks Infrastructure
 function Clean-GherkinRunningInfrastructure()
 {
@@ -69,73 +109,7 @@ function Clean-GherkinRunningInfrastructure()
 
 function Setup-TestRunContext
 {
-    if (-Not ([System.Management.Automation.PSTypeName]'TestRunContext').Type)
-    {
-        Add-Type @'
-using System;
-using System.Collections.Generic;
-using System.Management.Automation;
-using System.Globalization;
-
-public abstract class GherkinContextBase
-{
-    public bool HasValue(string name)
-    {
-        return _values.ContainsKey(name);
-    }
-
-    public object GetValue(string name)
-    {
-        return _values[name];
-    }
-
-    public void SetValue(string name, object value)
-    {
-        _values.Add(name, value);
-    }
-
-    public void UpdateValue(string name, object value)
-    {
-        _values[name] = value;
-    }
-
-    public void ModifyValue(string name, ScriptBlock modifyValue)
-    {
-        modifyValue.Invoke(GetValue(name));
-    }
-
-    private readonly IDictionary<string, object> _values = new Dictionary<string, object>();
-}
-
-public class TestRunContext : GherkinContextBase
-{
-    public static TestRunContext Current;
-}
-
-public class FeatureContext : GherkinContextBase
-{
-	public PSObject FeatureInfo;
-
-    public static FeatureContext Current;
-}
-
-public class ScenarioContext : GherkinContextBase
-{
-    public PSObject ScenarioInfo;
-
-    public PSObject CurrentScenarioBlock;
-
-    public void Pending()
-    {
-        throw new NotSupportedException("Step definition is not properly implemented.");
-    }
-
-    public static ScenarioContext Current;
-}
-'@
-    }
-
-    [TestRunContext]::Current = New-Object TestRunContext
+    [TestRunContext]::Current = [TestRunContext]::new()
 }
 
 function Get-GherkinHooks($hookType)

@@ -95,7 +95,7 @@ function Convert-ToXmlLines($complexObject)
 
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
-    if (-Not [string]::IsNullOrEmpty($logToFolder) -and ((Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue) -ne $Null))
+    if (-Not [string]::IsNullOrEmpty($logToFolder) -and ($Null -ne (Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue)))
     {
         $referenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
         $differenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
