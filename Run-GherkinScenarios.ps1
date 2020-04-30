@@ -139,79 +139,87 @@ class FeatureFileContent
     }
 }
 
-#region class ParsingResult
-function Build-ParsingResult($value, $rest)
+class ParsingResult
 {
-    @{ Value = $value; Rest = $rest }
+    [object] $Value
+
+    [FeatureFileContent] $Rest
+
+    ParsingResult([object] $value, [FeatureFileContent] $rest)
+    {
+        $this.Value = $value
+        $this.Rest = $rest 
+    }
 }
-#endregion
 
 #region Monadic Parsing
-function Parse-ContentWithParser($parser, [FeatureFileContent] $content)
+class MonadicParsing
 {
-    if ($parser -is [scriptblock])
+    static [ParsingResult] ParseWith($parser, [FeatureFileContent] $content)
     {
-        return & $parser $content
-    }
-
-    if ($parser -is [string])
-    {
-        $patternLength = $parser.Length
-        $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-        if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
+        if ($parser -is [scriptblock])
         {
-            Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-            return $Null
+            return & $parser $content
         }
-
-        Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-        return Build-ParsingResult -value $parser -rest $content.Skip($patternLength)
-    }
-
-    if ($parser -is [regex])
-    {
-        $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-        $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
-        if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
+    
+        if ($parser -is [string])
         {
-            Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-            return $Null
-        }
-
-        $parsedValue = $matchingResult.Groups[1].Value
-        Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
-        return Build-ParsingResult -value $parsedValue -rest $content.Skip($matchingResult.Length)
-    }
-
-    if ($parser -is [array])
-    {
-        foreach ($nextParser in $parser)
-        {
-            $parsingResult = Parse-ContentWithParser -content $content -parser $nextParser
-            if ($Null -eq $parsingResult)
+            $patternLength = $parser.Length
+            $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+            if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
             {
+                Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
                 return $Null
             }
-
-            $content = $parsingResult.Rest
+    
+            Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
+            return [ParsingResult]::new($parser, $content.Skip($patternLength))
         }
-
-        return $parsingResult
+    
+        if ($parser -is [regex])
+        {
+            $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
+            $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
+            if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
+            {
+                Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
+                return $Null
+            }
+    
+            $parsedValue = $matchingResult.Groups[1].Value
+            Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
+            return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
+        }
+    
+        if ($parser -is [array])
+        {
+            Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers' 
+            [ParsingResult] $parsingResult = $null
+            foreach ($nextParser in $parser)
+            {
+                $parsingResult = [MonadicParsing]::ParseWith($nextParser, $content)
+                if ($Null -eq $parsingResult)
+                {
+                    return $Null
+                }
+    
+                $content = $parsingResult.Rest
+            }
+    
+            return $parsingResult
+        }
+    
+        throw "Do not know how to parse with $parser of type $($parser.GetType())"
     }
-
-    throw "Do not know how to parse with $parser of type $($parser.GetType())"
 }
 
 function Optional([ValidateNotNullOrEmpty()] $parser, $orElse = $null)
 {
-    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-
     return {
         param ([FeatureFileContent] $content)
-        switch ($parsingResult = & $captured_ParseContentWithParser_function -parser $parser -content $content)
+        switch ($parsingResult = [MonadicParsing]::ParseWith($parser, $content))
         {
-            $null  { & $captured_BuildParsingResult_function -value $orElse -rest $content }
+            $null  { [ParsingResult]::new($orElse, $content) }
             default { $parsingResult }
         }
     }.GetNewClosure()
@@ -219,9 +227,6 @@ function Optional([ValidateNotNullOrEmpty()] $parser, $orElse = $null)
 
 function Repeat([ValidateNotNullOrEmpty()]$parser, [switch] $allowZeroRepetition)
 {
-    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-
     return {
         param ([FeatureFileContent] $content)
 
@@ -230,7 +235,7 @@ function Repeat([ValidateNotNullOrEmpty()]$parser, [switch] $allowZeroRepetition
         $restOfContent = $content
         while ($True)
         {
-            $parsingResult = & $captured_ParseContentWithParser_function -content $restOfContent -parser $parser
+            $parsingResult = [MonadicParsing]::ParseWith($parser, $restOfContent)
             if ($Null -eq $parsingResult)
             {
                 if (-Not $allowZeroRepetition -and $values.Length -eq 0)
@@ -238,7 +243,7 @@ function Repeat([ValidateNotNullOrEmpty()]$parser, [switch] $allowZeroRepetition
                     return $Null
                 }
 
-                return & $captured_BuildParsingResult_function -value $values -rest $restOfContent
+                return [ParsingResult]::new($values, $restOfContent)
             }
 
             if ($parsingResult.Value -is [array])
@@ -259,14 +264,12 @@ function One-Of([array] $parsers)
 {
     $parsers | ForEach-Object { Verify-That -condition ($_ -ne $Null) -message 'Program logic error: One-Of(...$Null...)' }
 
-    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
-
     return {
         param ([FeatureFileContent] $content)
 
         foreach ($parserAlternative in $parsers)
         {
-            $parsingResult = & $captured_ParseContentWithParser_function -content $content -parser $parserAlternative
+            $parsingResult = [MonadicParsing]::ParseWith($parserAlternative, $content)
             if ($Null -ne $parsingResult)
             {
                 return $parsingResult
@@ -279,19 +282,16 @@ function One-Of([array] $parsers)
 
 function Anything-But([ValidateNotNullOrEmpty()] $parser)
 {
-    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-
     return {
         param ([FeatureFileContent] $content)
 
-        $parsingResult = & $captured_ParseContentWithParser_function -content $content -parser $parser
+        $parsingResult = [MonadicParsing]::ParseWith($parser, $content)
         if ($Null -ne $parsingResult)
         {
             return $Null
         }
 
-        return (& $captured_BuildParsingResult_function -value $True -rest $content)
+        return [ParsingResult]::new($True, $content)
     }.GetNewClosure()
 }
 #endregion
@@ -299,8 +299,6 @@ function Anything-But([ValidateNotNullOrEmpty()] $parser)
 #region Parsing single line of text
 function Token([ValidateNotNullOrEmpty()] $tokenParser)
 {
-    $captured_ParseContentWithParser_function = ${function:Parse-ContentWithParser}
-
     return {
             param ([FeatureFileContent] $content)
 
@@ -310,7 +308,7 @@ function Token([ValidateNotNullOrEmpty()] $tokenParser)
                 return $Null
             }
 
-            $parsingResult = & $captured_ParseContentWithParser_function -parser $tokenParser -content $nextLine
+            $parsingResult = [MonadicParsing]::ParseWith($tokenParser, $nextLine)
             if ($Null -eq $parsingResult) # unrecognized pattern
             {
                 return $Null
@@ -328,8 +326,6 @@ function Token([ValidateNotNullOrEmpty()] $tokenParser)
 
 function EndOfContent
 {
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-
     return {
         param ([FeatureFileContent] $content)
 
@@ -338,7 +334,7 @@ function EndOfContent
             $nextLine = $content.GetNextLine()
             if ($Null -eq $nextLine)
             {
-                return (& $captured_BuildParsingResult_function -value $True -rest $content)
+                return [ParsingResult]::new($True, $content)
             }
 
             if ($nextLine.CurrentLineContainsNonSpaceCharacters())
@@ -366,14 +362,12 @@ function From-Parser
         [Parameter(Mandatory=$true, Position=2)]
         [object][ValidateNotNullOrEmpty()]$parser)
 
-    $captured_ParseContentWithParser_Function = ${function:Parse-ContentWithParser}
     $captured_LogParsing_Function = ${function:Log-Parsing}
 
     return {
         param ([FeatureFileContent] $content)
 
-        $parsingResult = & $captured_ParseContentWithParser_Function -parser $parser -content $content
-
+        $parsingResult = [MonadicParsing]::ParseWith($parser, $content)
         if ($Null -ne $parsingResult)
         {
             Set-Variable -Name $parsingResultName -Value $parsingResult.Value -Scope 2
@@ -392,13 +386,11 @@ function Select-ParsedValue
         [Parameter(Mandatory=$True, Position=0)]
         [scriptblock][ValidateNotNullOrEmpty()]$parsedValueProducer)
 
-    $captured_BuildParsingResult_function = ${function:Build-ParsingResult}
-
     return {
         param ([FeatureFileContent] $content)
         # by now, all variables calculated in previous 'from_' invocations should be accessible in this scope, so $parsedValueProducer can do its job
         $calculatedValue = & $parsedValueProducer
-        return & $captured_BuildParsingResult_function -value $calculatedValue -rest $content
+        return [ParsingResult]::new($calculatedValue, $content)
     }.GetNewClosure()
 }
 Set-Alias select_ Select-ParsedValue
@@ -968,7 +960,7 @@ Given-When ([regex] 'Halt\:(.*)') {
 $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
         $scriptFilePath = $_
         $scriptFileContent = [FeatureFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
-        $parsingResult = Parse-ContentWithParser -content $scriptFileContent -parser $GherkinDocument
+        $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
 
