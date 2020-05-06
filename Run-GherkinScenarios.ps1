@@ -553,11 +553,16 @@ $Background = (from_ backgroundName in (Complete-Line (Gherkin-LineParser $Gherk
               (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
-$Scenario = (from_ scenarioTags in (Optional $TagsParser)),
-            (from_ scenarioName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Scenario))),
+function Scenario-Parser($scenarioOrScenarioOutlineLexem)
+{
+    return  (from_ scenarioTags in (Optional $TagsParser)),
+            (from_ scenarioName in (Complete-Line (Gherkin-LineParser $scenarioOrScenarioOutlineLexem))),
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
-            (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
+            (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks } })
+}
+
+$Scenario = Scenario-Parser $GherkinKeywordParsers.Scenario
 
 $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
                       (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
@@ -570,19 +575,9 @@ $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
                                     ExamplesData = $examplesTable.Rows
                                     }})
 
-$ScenarioOutline = (from_ scenarioTags in (Optional $TagsParser)),
-                   (from_ scenarioOutlineName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
-                   (from_ scenarioOutlineDescription in $DescriptionHelper),
-                   (from_ scenarioOutlineStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
-                   (from_ scenarioOutlineExamples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
-                   (select_ { @{
-                                Title = $scenarioOutlineName;
-                                Description = $scenarioOutlineDescription;
-                                Tags = $scenarioTags;
-                                StepBlocks = $scenarioOutlineStepBlocks;
-                                SetsOfExamples = $scenarioOutlineExamples;
-                                IsScenarioOutline = $True
-                               }})
+$ScenarioOutline = (from_ scenarioTemplate in (Scenario-Parser $GherkinKeywordParsers.ScenarioOutline)),
+                   (from_ examples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
+                   (select_ { @{ ScenarioTemplate = $scenarioTemplate; Examples = $examples } })
 
 $Feature_Header = (from_ featureTags in (Optional $TagsParser)),
                   (from_ featureName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
@@ -832,13 +827,13 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
 
 filter Expand-ScenarioOutline
 {
-    if (-not $_.IsScenarioOutline)
+    if (-not $_.ContainsKey('Examples'))
     {
         return $_
     }
 
-    $scenarioOutline = $_
-    $scenarioOutline.SetsOfExamples | `
+    $scenarioTemplate = $_.ScenarioTemplate
+    $_.Examples | `
         ForEach-Object {
             $currentSetOfExamples = $_
 
@@ -846,7 +841,7 @@ filter Expand-ScenarioOutline
                 ForEach-Object {
                     $currentExample = $_
 
-                    $scenarioBlocks = $scenarioOutline.StepBlocks | `
+                    $scenarioBlocks = $scenarioTemplate.ScenarioBlocks | `
                         ForEach-Object {
                             $currentStepBlock = $_
                             $steps = $currentStepBlock.Steps | `
@@ -897,9 +892,9 @@ filter Expand-ScenarioOutline
                     $exampleDescription = "$firstParameterName`: $($currentExample[$firstParameterName])"
 
                     @{
-                        Title = "$($scenarioOutline.Title) ($exampleDescription)";
+                        Title = "$($scenarioTemplate.Title) ($exampleDescription)";
                         Description = $currentSetOfExamples.Description;
-                        Tags = ($scenarioOutline.Tags + $currentSetOfExamples.Tags);
+                        Tags = ($scenarioTemplate.Tags + $currentSetOfExamples.Tags);
                         ScenarioBlocks = @($scenarioBlocks);
                         IsScenarioOutline = $False
                     }
