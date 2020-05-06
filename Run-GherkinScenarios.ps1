@@ -293,7 +293,7 @@ function Anything-But([ValidateNotNullOrEmpty()] $parser)
 #endregion
 
 #region Parsing single line of text
-function Token([ValidateNotNullOrEmpty()] $tokenParser)
+function Complete-Line([ValidateNotNullOrEmpty()] $parser)
 {
     return {
             param ([FeatureFileContent] $content)
@@ -304,13 +304,13 @@ function Token([ValidateNotNullOrEmpty()] $tokenParser)
                 return $Null
             }
 
-            $parsingResult = [MonadicParsing]::ParseWith($tokenParser, $nextLine)
+            $parsingResult = [MonadicParsing]::ParseWith($parser, $nextLine)
             if ($Null -eq $parsingResult) # unrecognized pattern
             {
                 return $Null
             }
 
-            # If token parser matched the beginning of the line, but there still remain some unrecognized characters
+            # If $parser matched the beginning of the line, but there still remain some unrecognized characters
             if ($parsingResult.Rest.CurrentLineContainsNonSpaceCharacters())
             {
                 return $Null
@@ -473,14 +473,14 @@ $Comment = ([regex]'\s*#.*$')
 
 $TagLine = Repeat ([regex]'\s*@(\S+)')
 
-$TagsParser = (from_ tagNames in (Repeat (Token $TagLine))),
+$TagsParser = (from_ tagNames in (Repeat (Complete-Line $TagLine))),
               (select_ { @($tagNames | ForEach-Object { $_ }) })
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
-$DescriptionHelper = Repeat (One-Of (Token $Comment), (Token $Other)) -allowZeroRepetition
+$DescriptionHelper = Repeat (One-Of (Complete-Line $Comment), (Complete-Line $Other)) -allowZeroRepetition
 
-$TableRow = Token(@(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]'))))
+$TableRow = Complete-Line(@(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]'))))
 
 $DataTable = (from_ parsedTableHeader in $TableRow),
              (from_ parsedTableData in (Repeat $TableRow -allowZeroRepetition)),
@@ -508,9 +508,9 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
-$DocString = (Token $DocStringSeparator),
-             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Token $DocStringSeparator)), (Token ([regex]'(.*)'))) -allowZeroRepetition)),
-             (Token $DocStringSeparator),
+$DocString = (Complete-Line $DocStringSeparator),
+             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Complete-Line $DocStringSeparator)), (Complete-Line ([regex]'(.*)'))) -allowZeroRepetition)),
+             (Complete-Line $DocStringSeparator),
              (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
 $StepArgument = (One-Of $DataTable, $DocString)
@@ -532,9 +532,9 @@ function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
 
 function StepBlock-Parser($stepKeywordParser, [StepType] $stepType)
 {
-    $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Token (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
+    $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Complete-Line (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
 
-    return (from_ firstLineInBlock in (SingleStep-Parser (Token (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
+    return (from_ firstLineInBlock in (SingleStep-Parser (Complete-Line (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
            (from_ otherLinesInBlock in (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser)) -allowZeroRepetition)),
            (select_ { @{
                           BlockType = $stepType;
@@ -548,19 +548,19 @@ $ScenarioStepBlock = One-Of `
                         (StepBlock-Parser $GherkinKeywordParsers.When ([StepType]::When)), `
                         (StepBlock-Parser $GherkinKeywordParsers.Then ([StepType]::Then))
 
-$Background = (from_ backgroundName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Background))),
+$Background = (from_ backgroundName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Background))),
               (from_ backgroundDescription in $DescriptionHelper),
               (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
 $Scenario = (from_ scenarioTags in (Optional $TagsParser)),
-            (from_ scenarioName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Scenario))),
+            (from_ scenarioName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Scenario))),
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
             (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks; IsScenarioOutline = $False } })
 
 $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
-                      (Token (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
+                      (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
                       (from_ examplesDescription in $DescriptionHelper),
                       (from_ examplesTable in (Optional $DataTable)),
                       (select_ { @{
@@ -571,7 +571,7 @@ $ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
                                     }})
 
 $ScenarioOutline = (from_ scenarioTags in (Optional $TagsParser)),
-                   (from_ scenarioOutlineName in (Token (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
+                   (from_ scenarioOutlineName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.ScenarioOutline))),
                    (from_ scenarioOutlineDescription in $DescriptionHelper),
                    (from_ scenarioOutlineStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
                    (from_ scenarioOutlineExamples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
@@ -585,7 +585,7 @@ $ScenarioOutline = (from_ scenarioTags in (Optional $TagsParser)),
                                }})
 
 $Feature_Header = (from_ featureTags in (Optional $TagsParser)),
-                  (from_ featureName in (Token (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
+                  (from_ featureName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
                   (from_ featureDescription in $DescriptionHelper),
                   (select_ { @{ Name = $featureName; Description = $featureDescription; Tags = $featureTags } })
 
