@@ -11,14 +11,6 @@
 
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
 
-function Log-TestRunning($message)
-{
-    if (-Not [string]::IsNullOrEmpty($logTestRunningToFile))
-    {
-        "$([datetime]::Now.ToString("HH:mm:ss.ffff"))   $message" | Out-File -FilePath $logTestRunningToFile -Append
-    }
-}
-
 trap {
     if ($global:Error.Count -gt 0)
     {

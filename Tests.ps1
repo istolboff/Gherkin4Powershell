@@ -23,7 +23,7 @@ function Save-ContentToTemporaryFile($scriptContent)
     return $temporaryFilePath 
 }
 
-function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectFailures)
+function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectFailures, [switch] $failFast)
 {
     try
     {
@@ -36,7 +36,8 @@ function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectF
                                 -cultureName 'en-US' `
                                 -logParsingToFile $parsingLogFile `
                                 -logTestRunningToFile $runningLogFile `
-								-doNotCleanupGherkinRunningInfrastructure)
+                                -doNotCleanupGherkinRunningInfrastructure `
+                                -failFast:$failFast)
         if ($featureExecutionResults.Length -eq 0 -and $scriptContent -ne '')
         {
             throw "Test case '$illustrating': feature file parsing failed."
@@ -393,6 +394,33 @@ Given-WhenThen ([regex] "A failed Assertion with the text '(.*)' takes place") {
     Assert-That -condition $false -message $assertionMessage
 }
 
+Given ([regex] 'a timespan object with the value (.*)') {
+    param ([TimeSpan] $timespan)
+    [ScenarioContext]::Current.UpdateValue('CurrentTypedObject', $timespan)
+}
+
+Given ([regex] 'a StringComparison object with value (.*)') {
+    param ([StringComparison] $stringComparison)
+    [ScenarioContext]::Current.UpdateValue('CurrentTypedObject', $stringComparison)
+}
+
+Then ([regex] 'its (.*) property should be equal to (.*)') {
+    param ([string] $propertyName, $expectedPropertyValue)
+    $currentTypedObject = [ScenarioContext]::Current.GetValue('CurrentTypedObject')
+    if ($expectedPropertyValue -ne $currentTypedObject.$propertyName)
+    {
+        throw "`$currentTypedObject.$propertyName is expected to be $expectedPropertyValue while it is $($currentTypedObject.$propertyName)"
+    }
+}
+
+Then ([regex] 'its numerical value should be equal to (.*)') {
+    param ([int] $expectedValue)
+    $currentTypedObject = [ScenarioContext]::Current.GetValue('CurrentTypedObject')
+    if ($expectedValue -ne [int] $currentTypedObject)
+    {
+        throw "`$currentTypedObject is expected to be $expectedValue while it is $currentTypedObject"
+    }
+}
 
 Running (Gherkin-Script '') -illustrating 'Empty *.feature' | should result in invocation of @()
 
@@ -1077,3 +1105,15 @@ Scenario: s-1
 -expectFailures `
 -illustrating 'All failed assertions get combined in the failed scenario outcome' | should result in the following failure `
     @('This is the first error coming from scenario', 'Another error came out', 'And this is the 3rd, final error')
+
+
+[void] (Running (Gherkin-Script @"
+Feature: z
+Scenario: z-0
+   Given a timespan object with the value 2:45:17
+    Then its TotalSeconds property should be equal to 9917
+   Given a StringComparison object with value InvariantCultureIgnoreCase
+    Then its numerical value should be equal to 3
+"@) `
+    -illustrating "Application of type convertors for step definition's parameters" `
+    -failFast)

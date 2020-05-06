@@ -12,7 +12,9 @@ function Describe-ErrorRecord($errorRecord)
 
         if ($null -ne $errRec.InvocationInfo -and $null -ne $errRec.InvocationInfo.PositionMessage)
         {
+            $errorMessages += ' ('
             $errorMessages += $errRec.InvocationInfo.PositionMessage | Out-String
+            $errorMessages += ")$([Environment]::NewLine)"
         }
 
         $errorMessages
@@ -158,7 +160,7 @@ function Define-TestParametersCore($parameters, [switch] $optional)
 {
     if ($parameters.Length % 2 -ne 0)
     {
-        throw "Define-TestParameters expects a set of paired parameters: the first element of the pair is the argument's name, the second is a ref parameter that will accept the value"
+        throw "Define-[Optional]TestParameters expects a set of paired parameters: the first element of the pair is the argument's name, the second is a ref parameter that will accept the value"
     }
 
     $availableParameters = (Get-Variable -Name GlobalTestParametersHashtable -Scope Global).Value
@@ -319,6 +321,16 @@ function Given-WhenThen([regex]$stepPattern, [scriptblock] $stepScript)
 }
 #endregion
 
+#region Logging API
+function Log-TestRunning($message)
+{
+    if (-Not [string]::IsNullOrEmpty($logTestRunningToFile))
+    {
+        "$([datetime]::Now.ToString("HH:mm:ss.ffff"))   $message" | Out-File -FilePath $logTestRunningToFile -Append
+    }
+}
+#endregion
+
 #region Assert API
 $failedAssertionsListName = '__FailedAssertions_F0FA5986-216F-4791-BE7E-3E50989A5720'
 
@@ -348,6 +360,10 @@ function Assert-That($condition, $message, [switch] $fatal, [switch] $passThroug
         if ($fatal)
         {
             throw (Get-AllFailedAssertionsInfo)
+        }
+        else
+        {
+            Log-TestRunning -message "Assertion failed: $message"
         }
     }
 
