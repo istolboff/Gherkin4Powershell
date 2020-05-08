@@ -2,7 +2,7 @@
     [string] $scenarios,
 	[string] $stepDefinitions = $null,
     [string] $tags = $Null,
-    [string] $cultureName = 'en-US',
+    [string] $cultureName = 'en',
     [string] $logParsingToFile = $Null,
     [string] $logTestRunningToFile = $Null,
 	[switch] $failFast,
@@ -375,6 +375,21 @@ function From-Parser
 }
 Set-Alias from_ From-Parser
 
+function Restrict-ParsedValue
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$True, Position=0)]
+        [scriptblock][ValidateNotNullOrEmpty()]$parsedValueChecker)
+
+    return  {
+        param ([FeatureFileContent] $content)
+        switch (& $parsedValueChecker) { $false { $null } default { [ParsingResult]::new($true, $content) } }
+    }.GetNewClosure()
+}
+
+Set-Alias where_ Restrict-ParsedValue
+
 function Select-ParsedValue
 {
     [CmdletBinding()]
@@ -396,52 +411,83 @@ Set-Alias select_ Select-ParsedValue
 function Build-GherkinKeywordParsers($cultureName)
 {
     $allGherkinKeywords = @{
-            'ar-AR' = @{ Feature='خاصية'; Background='الخلفية'; Scenario='سيناريو'; ScenarioOutline='سيناريو مخطط'; Examples='امثلة'; Given='بفرض'; When='متى','عندما'; Then='اذاً','ثم'; And='و'; But='لكن' };
-            'bg-BG' = @{ Feature='Функционалност'; Background='Предистория'; Scenario='Сценарий'; ScenarioOutline='Рамка на сценарий'; Examples='Примери'; Given='Дадено'; When='Когато'; Then='То'; And='И'; But='Но' };
-            'ca-CA' = @{ Feature='Característica','Funcionalitat'; Background='Rerefons','Antecedents'; Scenario='Escenari'; ScenarioOutline='Esquema de l''escenari'; Examples='Exemples'; Given='Donat','Donada','Atès','Atesa'; When='Quan'; Then='Aleshores','Cal'; And='I'; But='Però' };
-            'cs-CS' = @{ Feature='Požadavek'; Background='Pozadí','Kontext'; Scenario='Scénář'; ScenarioOutline='Náčrt Scénáře','Osnova scénáře'; Examples='Příklady'; Given='Pokud'; When='Když'; Then='Pak'; And='A','A také'; But='Ale' };
-            'cy-GB-CY-GB' = @{ Feature='Arwedd'; Background='Cefndir'; Scenario='Scenario'; ScenarioOutline='Scenario Amlinellol'; Examples='Enghreifftiau'; Given='Anrhegedig a'; When='Pryd'; Then='Yna'; And='A'; But='Ond' };
-            'da-DA' = @{ Feature='Egenskab'; Background='Baggrund'; Scenario='Scenarie'; ScenarioOutline='Abstrakt Scenario'; Examples='Eksempler'; Given='Givet'; When='Når'; Then='Så'; And='Og'; But='Men' };
-            'de-DE' = @{ Feature='Funktionalität'; Background='Grundlage'; Scenario='Szenario'; ScenarioOutline='Szenariogrundriss'; Examples='Beispiele'; Given='Angenommen','Gegeben sei','Gegeben seien'; When='Wenn'; Then='Dann'; And='Und'; But='Aber' };
-            'en-EN' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario','Example'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
-            'en-US' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario','Example'; ScenarioOutline='Scenario Outline','Scenario Template'; Examples='Examples','Scenarios'; Given='Given'; When='When'; Then='Then'; And='And'; But='But' };
-            'en-AU-EN-AU' = @{ Feature='Pretty much'; Background='First off'; Scenario='Awww, look mate'; ScenarioOutline='Reckon it''s like'; Examples='You''ll wanna'; Given='Y''know'; When='It''s just unbelievable'; Then='But at the end of the day I reckon'; And='Too right'; But='Yeah nah' };
-            'en-EN-LOL' = @{ Feature='OH HAI'; Background='B4'; Scenario='MISHUN'; ScenarioOutline='MISHUN SRSLY'; Examples='EXAMPLZ'; Given='I CAN HAZ'; When='WEN'; Then='DEN'; And='AN'; But='BUT' };
-            'en-EN-PIRATE' = @{ Feature='Ahoy matey!'; Background='Yo-ho-ho'; Scenario='Heave to'; ScenarioOutline='Shiver me timbers'; Examples='Dead men tell no tales'; Given='Gangway!'; When='Blimey!'; Then='Let go and haul'; And='Aye'; But='Avast!' };
-            'en-EN-SCOUSE' = @{ Feature='Feature'; Background='Dis is what went down'; Scenario='The thing of it is'; ScenarioOutline='Wharrimean is'; Examples='Examples'; Given='Givun','Youse know when youse got'; When='Wun','Youse know like when'; Then='Dun','Den youse gotta'; And='An'; But='Buh' };
-            'en-EN-TX' = @{ Feature='Feature'; Background='Background'; Scenario='Scenario'; ScenarioOutline='All y''all'; Examples='Examples'; Given='Given y''all'; When='When y''all'; Then='Then y''all'; And='And y''all'; But='But y''all' };
-            'es-ES' = @{ Feature='Característica'; Background='Antecedentes'; Scenario='Escenario'; ScenarioOutline='Esquema del escenario'; Examples='Ejemplos'; Given='Dado','Dada','Dados','Dadas'; When='Cuando'; Then='Entonces'; And='Y'; But='Pero' };
-            'et-ET' = @{ Feature='Omadus'; Background='Taust'; Scenario='Stsenaarium'; ScenarioOutline='Raamstsenaarium'; Examples='Juhtumid'; Given='Eeldades'; When='Kui'; Then='Siis'; And='Ja'; But='Kuid' };
-            'fi-FI' = @{ Feature='Ominaisuus'; Background='Tausta'; Scenario='Tapaus'; ScenarioOutline='Tapausaihio'; Examples='Tapaukset'; Given='Oletetaan'; When='Kun'; Then='Niin'; And='Ja'; But='Mutta' };
-            'fr-FR' = @{ Feature='Fonctionnalité'; Background='Contexte'; Scenario='Scénario'; ScenarioOutline='Plan du scénario','Plan du Scénario'; Examples='Exemples'; Given='Soit','Etant donné','Etant donnée','Etant donnés','Etant données','Étant donné','Étant donnée','Étant donnés','Étant données'; When='Quand','Lorsque','Lorsqu'''; Then='Alors'; And='Et'; But='Mais' };
-            'he-HE' = @{ Feature='תכונה'; Background='רקע'; Scenario='תרחיש'; ScenarioOutline='תבנית תרחיש'; Examples='דוגמאות'; Given='בהינתן'; When='כאשר'; Then='אז','אזי'; And='וגם'; But='אבל' };
-            'hr-HR' = @{ Feature='Osobina','Mogućnost','Mogucnost'; Background='Pozadina'; Scenario='Scenarij'; ScenarioOutline='Skica','Koncept'; Examples='Primjeri','Scenariji'; Given='Zadan','Zadani','Zadano'; When='Kada','Kad'; Then='Onda'; And='I'; But='Ali' };
-            'hu-HU' = @{ Feature='Jellemző'; Background='Háttér'; Scenario='Forgatókönyv'; ScenarioOutline='Forgatókönyv vázlat'; Examples='Példák'; Given='Amennyiben','Adott'; When='Majd','Ha','Amikor'; Then='Akkor'; And='És'; But='De' };
-            'id-ID' = @{ Feature='Fitur'; Background='Dasar'; Scenario='Skenario'; ScenarioOutline='Skenario konsep'; Examples='Contoh'; Given='Dengan'; When='Ketika'; Then='Maka'; And='Dan'; But='Tapi' };
-            'is-IS' = @{ Feature='Eiginleiki'; Background='Bakgrunnur'; Scenario='Atburðarás'; ScenarioOutline='Lýsing Atburðarásar','Lýsing Dæma'; Examples='Dæmi','Atburðarásir'; Given='Ef'; When='Þegar'; Then='Þá'; And='Og'; But='En' };
-            'it-IT' = @{ Feature='Funzionalità'; Background='Contesto'; Scenario='Scenario'; ScenarioOutline='Schema dello scenario'; Examples='Esempi'; Given='Dato','Data','Dati','Date'; When='Quando'; Then='Allora'; And='E'; But='Ma' };
-            'ja-JA' = @{ Feature='フィーチャ','機能'; Background='背景'; Scenario='シナリオ'; ScenarioOutline='シナリオアウトライン','シナリオテンプレート','テンプレ','シナリオテンプレ'; Examples='例','サンプル'; Given='前提'; When='もし'; Then='ならば'; And='かつ'; But='しかし','但し','ただし' };
-            'ko-KO' = @{ Feature='기능'; Background='배경'; Scenario='시나리오'; ScenarioOutline='시나리오 개요'; Examples='예'; Given='조건','먼저'; When='만일','만약'; Then='그러면'; And='그리고'; But='하지만','단' };
-            'lt-LT' = @{ Feature='Savybė'; Background='Kontekstas'; Scenario='Scenarijus'; ScenarioOutline='Scenarijaus šablonas'; Examples='Pavyzdžiai','Scenarijai','Variantai'; Given='Duota'; When='Kai'; Then='Tada'; And='Ir'; But='Bet' };
-            'lb-LU-LB-LU' = @{ Feature='Funktionalitéit'; Background='Hannergrond'; Scenario='Szenario'; ScenarioOutline='Plang vum Szenario'; Examples='Beispiller'; Given='ugeholl'; When='wann'; Then='dann'; And='an','a'; But='awer','mä' };
-            'lv-LV' = @{ Feature='Funkcionalitāte','Fīča'; Background='Konteksts','Situācija'; Scenario='Scenārijs'; ScenarioOutline='Scenārijs pēc parauga'; Examples='Piemēri','Paraugs'; Given='Kad'; When='Ja'; Then='Tad'; And='Un'; But='Bet' };
-            'nl-NL' = @{ Feature='Functionaliteit'; Background='Achtergrond'; Scenario='Scenario'; ScenarioOutline='Abstract Scenario'; Examples='Voorbeelden'; Given='Gegeven','Stel'; When='Als'; Then='Dan'; And='En'; But='Maar' };
-            'no-NO' = @{ Feature='Egenskap'; Background='Bakgrunn'; Scenario='Scenario'; ScenarioOutline='Scenariomal','Abstrakt Scenario'; Examples='Eksempler'; Given='Gitt'; When='Når'; Then='Så'; And='Og'; But='Men' };
-            'pl-PL' = @{ Feature='Właściwość'; Background='Założenia'; Scenario='Scenariusz'; ScenarioOutline='Szablon scenariusza'; Examples='Przykłady'; Given='Zakładając','Mając'; When='Jeżeli','Jeśli'; Then='Wtedy'; And='Oraz','I'; But='Ale' };
-            'pt-PT' = @{ Feature='Funcionalidade'; Background='Contexto'; Scenario='Cenário','Cenario'; ScenarioOutline='Esquema do Cenário','Esquema do Cenario'; Examples='Exemplos'; Given='Dado','Dada','Dados','Dadas'; When='Quando'; Then='Então','Entao'; And='E'; But='Mas' };
-            'ro-RO' = @{ Feature='Functionalitate','Funcționalitate','Funcţionalitate'; Background='Context'; Scenario='Scenariu'; ScenarioOutline='Structura scenariu','Structură scenariu'; Examples='Exemple'; Given='Date fiind','Dat fiind','Dati fiind','Dați fiind','Daţi fiind'; When='Cand','Când'; Then='Atunci'; And='Si','Și','Şi'; But='Dar' };
-            'ru-RU' = @{ Feature='Функция','Функционал','Свойство'; Background='Предыстория','Контекст'; Scenario='Сценарий'; ScenarioOutline='Структура сценария'; Examples='Примеры'; Given='Допустим','Дано','Пусть'; When='Если','Когда'; Then='То','Тогда'; And='И','К тому же'; But='Но','А' };
-            'sk-SK' = @{ Feature='Požiadavka'; Background='Pozadie'; Scenario='Scenár'; ScenarioOutline='Náčrt Scenáru'; Examples='Príklady'; Given='Pokiaľ'; When='Keď'; Then='Tak'; And='A'; But='Ale' };
-            'sr-SR-CYRL' = @{ Feature='Функционалност','Могућност','Особина'; Background='Контекст','Основа','Позадина'; Scenario='Сценарио','Пример'; ScenarioOutline='Структура сценарија','Скица','Концепт'; Examples='Примери','Сценарији'; Given='Задато','Задате','Задати'; When='Када','Кад'; Then='Онда'; And='И'; But='Али' };
-            'sr-SR-LATN' = @{ Feature='Funkcionalnost','Mogućnost','Mogucnost','Osobina'; Background='Kontekst','Osnova','Pozadina'; Scenario='Scenario','Primer'; ScenarioOutline='Struktura scenarija','Skica','Koncept'; Examples='Primeri','Scenariji'; Given='Zadato','Zadate','Zatati'; When='Kada','Kad'; Then='Onda'; And='I'; But='Ali' };
-            'sv-SV' = @{ Feature='Egenskap'; Background='Bakgrund'; Scenario='Scenario'; ScenarioOutline='Abstrakt Scenario','Scenariomall'; Examples='Exempel'; Given='Givet'; When='När'; Then='Så'; And='Och'; But='Men' };
-            'tr-TR' = @{ Feature='Özellik'; Background='Geçmiş'; Scenario='Senaryo'; ScenarioOutline='Senaryo taslağı'; Examples='Örnekler'; Given='Diyelim ki'; When='Eğer ki'; Then='O zaman'; And='Ve'; But='Fakat','Ama' };
-            'uk-UK' = @{ Feature='Функціонал'; Background='Передумова'; Scenario='Сценарій'; ScenarioOutline='Структура сценарію'; Examples='Приклади'; Given='Припустимо','Припустимо, що','Нехай','Дано'; When='Якщо','Коли'; Then='То','Тоді'; And='І','А також','Та'; But='Але' };
-            'uz-UZ' = @{ Feature='Функционал'; Background='Тарих'; Scenario='Сценарий'; ScenarioOutline='Сценарий структураси'; Examples='Мисоллар'; Given='Агар'; When='Агар'; Then='Унда'; And='Ва'; But='Лекин','Бирок','Аммо' };
-            'vi-VI' = @{ Feature='Tính năng'; Background='Bối cảnh'; Scenario='Tình huống','Kịch bản'; ScenarioOutline='Khung tình huống','Khung kịch bản'; Examples='Dữ liệu'; Given='Biết','Cho'; When='Khi'; Then='Thì'; And='Và'; But='Nhưng' };
-            'zh-CN-ZH-CN' = @{ Feature='功能'; Background='背景'; Scenario='场景'; ScenarioOutline='场景大纲'; Examples='例子'; Given='假如'; When='当'; Then='那么'; And='而且'; But='但是' };
-            'zh-TW-ZH-TW' = @{ Feature='功能'; Background='背景'; Scenario='場景','劇本'; ScenarioOutline='場景大綱','劇本大綱'; Examples='例子'; Given='假設'; When='當'; Then='那麼'; And='而且','並且'; But='但是' };
-        }
+        'af' = @{ And = "*","En"; Background = "Agtergrond"; But = "*","Maar"; Examples = "Voorbeelde"; Feature = "Funksie","Besigheid Behoefte","Vermoë"; Given = "*","Gegewe"; Name = "Afrikaans"; Native = "Afrikaans"; Rule = "Rule"; Scenario = "Voorbeeld","Situasie"; ScenarioOutline = "Situasie Uiteensetting"; Then = "*","Dan"; When = "*","Wanneer" };
+        'am' = @{ And = "*","Եվ"; Background = "Կոնտեքստ"; But = "*","Բայց"; Examples = "Օրինակներ"; Feature = "Ֆունկցիոնալություն","Հատկություն"; Given = "*","Դիցուք"; Name = "Armenian"; Native = "հայերեն"; Rule = "Rule"; Scenario = "Օրինակ","Սցենար"; ScenarioOutline = "Սցենարի կառուցվացքը"; Then = "*","Ապա"; When = "*","Եթե","Երբ" };
+        'an' = @{ And = "*","Y","E"; Background = "Antecedents"; But = "*","Pero"; Examples = "Eixemplos"; Feature = "Caracteristica"; Given = "*","Dau","Dada","Daus","Dadas"; Name = "Aragonese"; Native = "Aragonés"; Rule = "Rule"; Scenario = "Eixemplo","Caso"; ScenarioOutline = "Esquema del caso"; Then = "*","Alavez","Allora","Antonces"; When = "*","Cuan" };
+        'ar' = @{ And = "*","و"; Background = "الخلفية"; But = "*","لكن"; Examples = "امثلة"; Feature = "خاصية"; Given = "*","بفرض"; Name = "Arabic"; Native = "العربية"; Rule = "Rule"; Scenario = "مثال","سيناريو"; ScenarioOutline = "سيناريو مخطط"; Then = "*","اذاً","ثم"; When = "*","متى","عندما" };
+        'ast' = @{ And = "*","Y","Ya"; Background = "Antecedentes"; But = "*","Peru"; Examples = "Exemplos"; Feature = "Carauterística"; Given = "*","Dáu","Dada","Daos","Daes"; Name = "Asturian"; Native = "asturianu"; Rule = "Rule"; Scenario = "Exemplo","Casu"; ScenarioOutline = "Esbozu del casu"; Then = "*","Entós"; When = "*","Cuando" };
+        'az' = @{ And = "*","Və","Həm"; Background = "Keçmiş","Kontekst"; But = "*","Amma","Ancaq"; Examples = "Nümunələr"; Feature = "Özəllik"; Given = "*","Tutaq ki","Verilir"; Name = "Azerbaijani"; Native = "Azərbaycanca"; Rule = "Rule"; Scenario = "Nümunə","Ssenari"; ScenarioOutline = "Ssenarinin strukturu"; Then = "*","O halda"; When = "*","Əgər","Nə vaxt ki" };
+        'bg' = @{ And = "*","И"; Background = "Предистория"; But = "*","Но"; Examples = "Примери"; Feature = "Функционалност"; Given = "*","Дадено"; Name = "Bulgarian"; Native = "български"; Rule = "Rule"; Scenario = "Пример","Сценарий"; ScenarioOutline = "Рамка на сценарий"; Then = "*","То"; When = "*","Когато" };
+        'bm' = @{ And = "*","Dan"; Background = "Latar Belakang"; But = "*","Tetapi","Tapi"; Examples = "Contoh"; Feature = "Fungsi"; Given = "*","Diberi","Bagi"; Name = "Malay"; Native = "Bahasa Melayu"; Rule = "Rule"; Scenario = "Senario","Situasi","Keadaan"; ScenarioOutline = "Kerangka Senario","Kerangka Situasi","Kerangka Keadaan","Garis Panduan Senario"; Then = "*","Maka","Kemudian"; When = "*","Apabila" };
+        'bs' = @{ And = "*","I","A"; Background = "Pozadina"; But = "*","Ali"; Examples = "Primjeri"; Feature = "Karakteristika"; Given = "*","Dato"; Name = "Bosnian"; Native = "Bosanski"; Rule = "Rule"; Scenario = "Primjer","Scenariju","Scenario"; ScenarioOutline = "Scenariju-obris","Scenario-outline"; Then = "*","Zatim"; When = "*","Kada" };
+        'ca' = @{ And = "*","I"; Background = "Rerefons","Antecedents"; But = "*","Però"; Examples = "Exemples"; Feature = "Característica","Funcionalitat"; Given = "*","Donat","Donada","Atès","Atesa"; Name = "Catalan"; Native = "català"; Rule = "Rule"; Scenario = "Exemple","Escenari"; ScenarioOutline = "Esquema de l'escenari"; Then = "*","Aleshores","Cal"; When = "*","Quan" };
+        'cs' = @{ And = "*","A také","A"; Background = "Pozadí","Kontext"; But = "*","Ale"; Examples = "Příklady"; Feature = "Požadavek"; Given = "*","Pokud","Za předpokladu"; Name = "Czech"; Native = "Česky"; Rule = "Rule"; Scenario = "Příklad","Scénář"; ScenarioOutline = "Náčrt Scénáře","Osnova scénáře"; Then = "*","Pak"; When = "*","Když" };
+        'cy-GB' = @{ And = "*","A"; Background = "Cefndir"; But = "*","Ond"; Examples = "Enghreifftiau"; Feature = "Arwedd"; Given = "*","Anrhegedig a"; Name = "Welsh"; Native = "Cymraeg"; Rule = "Rule"; Scenario = "Enghraifft","Scenario"; ScenarioOutline = "Scenario Amlinellol"; Then = "*","Yna"; When = "*","Pryd" };
+        'da' = @{ And = "*","Og"; Background = "Baggrund"; But = "*","Men"; Examples = "Eksempler"; Feature = "Egenskab"; Given = "*","Givet"; Name = "Danish"; Native = "dansk"; Rule = "Rule"; Scenario = "Eksempel","Scenarie"; ScenarioOutline = "Abstrakt Scenario"; Then = "*","Så"; When = "*","Når" };
+        'de' = @{ And = "*","Und"; Background = "Grundlage","Hintergrund","Voraussetzungen","Vorbedingungen"; But = "*","Aber"; Examples = "Beispiele"; Feature = "Funktionalität","Funktion"; Given = "*","Angenommen","Gegeben sei","Gegeben seien"; Name = "German"; Native = "Deutsch"; Rule = "Rule","Regel"; Scenario = "Beispiel","Szenario"; ScenarioOutline = "Szenariogrundriss","Szenarien"; Then = "*","Dann"; When = "*","Wenn" };
+        'el' = @{ And = "*","Και"; Background = "Υπόβαθρο"; But = "*","Αλλά"; Examples = "Παραδείγματα","Σενάρια"; Feature = "Δυνατότητα","Λειτουργία"; Given = "*","Δεδομένου"; Name = "Greek"; Native = "Ελληνικά"; Rule = "Rule"; Scenario = "Παράδειγμα","Σενάριο"; ScenarioOutline = "Περιγραφή Σεναρίου","Περίγραμμα Σεναρίου"; Then = "*","Τότε"; When = "*","Όταν" };
+        'em' = @{ And = "*","😂"; Background = "💤"; But = "*","😔"; Examples = "📓"; Feature = "📚"; Given = "*","😐"; Name = "Emoji"; Native = "😀"; Rule = "Rule"; Scenario = "🥒","📕"; ScenarioOutline = "📖"; Then = "*","🙏"; When = "*","🎬" };
+        'en' = @{ And = "*","And"; Background = "Background"; But = "*","But"; Examples = "Examples","Scenarios"; Feature = "Feature","Business Need","Ability"; Given = "*","Given"; Name = "English"; Native = "English"; Rule = "Rule"; Scenario = "Example","Scenario"; ScenarioOutline = "Scenario Outline","Scenario Template"; Then = "*","Then"; When = "*","When" };
+        'en-au' = @{ And = "*","Too right"; Background = "First off"; But = "*","Yeah nah"; Examples = "You'll wanna"; Feature = "Pretty much"; Given = "*","Y'know"; Name = "Australian"; Native = "Australian"; Rule = "Rule"; Scenario = "Awww, look mate"; ScenarioOutline = "Reckon it's like"; Then = "*","But at the end of the day I reckon"; When = "*","It's just unbelievable" };
+        'en-lol' = @{ And = "*","AN"; Background = "B4"; But = "*","BUT"; Examples = "EXAMPLZ"; Feature = "OH HAI"; Given = "*","I CAN HAZ"; Name = "LOLCAT"; Native = "LOLCAT"; Rule = "Rule"; Scenario = "MISHUN"; ScenarioOutline = "MISHUN SRSLY"; Then = "*","DEN"; When = "*","WEN" };
+        'en-old' = @{ And = "*","Ond","7"; Background = "Aer","Ær"; But = "*","Ac"; Examples = "Se the","Se þe","Se ðe"; Feature = "Hwaet","Hwæt"; Given = "*","Thurh","Þurh","Ðurh"; Name = "Old English"; Native = "Englisc"; Rule = "Rule"; Scenario = "Swa"; ScenarioOutline = "Swa hwaer swa","Swa hwær swa"; Then = "*","Tha","Þa","Ða","Tha the","Þa þe","Ða ðe"; When = "*","Tha","Þa","Ða" };
+        'en-pirate' = @{ And = "*","Aye"; Background = "Yo-ho-ho"; But = "*","Avast!"; Examples = "Dead men tell no tales"; Feature = "Ahoy matey!"; Given = "*","Gangway!"; Name = "Pirate"; Native = "Pirate"; Rule = "Rule"; Scenario = "Heave to"; ScenarioOutline = "Shiver me timbers"; Then = "*","Let go and haul"; When = "*","Blimey!" };
+        'en-Scouse' = @{ And = "*","An"; Background = "Dis is what went down"; But = "*","Buh"; Examples = "Examples"; Feature = "Feature"; Given = "*","Givun","Youse know when youse got"; Name = "Scouse"; Native = "Scouse"; Rule = "Rule"; Scenario = "The thing of it is"; ScenarioOutline = "Wharrimean is"; Then = "*","Dun","Den youse gotta"; When = "*","Wun","Youse know like when" };
+        'eo' = @{ And = "*","Kaj"; Background = "Fono"; But = "*","Sed"; Examples = "Ekzemploj"; Feature = "Trajto"; Given = "*","Donitaĵo","Komence"; Name = "Esperanto"; Native = "Esperanto"; Rule = "Rule"; Scenario = "Ekzemplo","Scenaro","Kazo"; ScenarioOutline = "Konturo de la scenaro","Skizo","Kazo-skizo"; Then = "*","Do"; When = "*","Se" };
+        'es' = @{ And = "*","Y","E"; Background = "Antecedentes"; But = "*","Pero"; Examples = "Ejemplos"; Feature = "Característica"; Given = "*","Dado","Dada","Dados","Dadas"; Name = "Spanish"; Native = "español"; Rule = "Regla"; Scenario = "Ejemplo","Escenario"; ScenarioOutline = "Esquema del escenario"; Then = "*","Entonces"; When = "*","Cuando" };
+        'et' = @{ And = "*","Ja"; Background = "Taust"; But = "*","Kuid"; Examples = "Juhtumid"; Feature = "Omadus"; Given = "*","Eeldades"; Name = "Estonian"; Native = "eesti keel"; Rule = "Reegel"; Scenario = "Juhtum","Stsenaarium"; ScenarioOutline = "Raamjuhtum","Raamstsenaarium"; Then = "*","Siis"; When = "*","Kui" };
+        'fa' = @{ And = "*","و"; Background = "زمینه"; But = "*","اما"; Examples = "نمونه ها"; Feature = "وِیژگی"; Given = "*","با فرض"; Name = "Persian"; Native = "فارسی"; Rule = "Rule"; Scenario = "مثال","سناریو"; ScenarioOutline = "الگوی سناریو"; Then = "*","آنگاه"; When = "*","هنگامی" };
+        'fi' = @{ And = "*","Ja"; Background = "Tausta"; But = "*","Mutta"; Examples = "Tapaukset"; Feature = "Ominaisuus"; Given = "*","Oletetaan"; Name = "Finnish"; Native = "suomi"; Rule = "Rule"; Scenario = "Tapaus"; ScenarioOutline = "Tapausaihio"; Then = "*","Niin"; When = "*","Kun" };
+        'fr' = @{ And = "*","Et que","Et qu'","Et"; Background = "Contexte"; But = "*","Mais que","Mais qu'","Mais"; Examples = "Exemples"; Feature = "Fonctionnalité"; Given = "*","Soit","Sachant que","Sachant qu'","Sachant","Etant donné que","Etant donné qu'","Etant donné","Etant donnée","Etant donnés","Etant données","Étant donné que","Étant donné qu'","Étant donné","Étant donnée","Étant donnés","Étant données"; Name = "French"; Native = "français"; Rule = "Règle"; Scenario = "Exemple","Scénario"; ScenarioOutline = "Plan du scénario","Plan du Scénario"; Then = "*","Alors","Donc"; When = "*","Quand","Lorsque","Lorsqu'" };
+        'ga' = @{ And = "*","Agus"; Background = "Cúlra"; But = "*","Ach"; Examples = "Samplaí"; Feature = "Gné"; Given = "*","Cuir i gcás go","Cuir i gcás nach","Cuir i gcás gur","Cuir i gcás nár"; Name = "Irish"; Native = "Gaeilge"; Rule = "Rule"; Scenario = "Sampla","Cás"; ScenarioOutline = "Cás Achomair"; Then = "*","Ansin"; When = "*","Nuair a","Nuair nach","Nuair ba","Nuair nár" };
+        'gj' = @{ And = "*","અને"; Background = "બેકગ્રાઉન્ડ"; But = "*","પણ"; Examples = "ઉદાહરણો"; Feature = "લક્ષણ","વ્યાપાર જરૂર","ક્ષમતા"; Given = "*","આપેલ છે"; Name = "Gujarati"; Native = "ગુજરાતી"; Rule = "Rule"; Scenario = "ઉદાહરણ","સ્થિતિ"; ScenarioOutline = "પરિદ્દશ્ય રૂપરેખા","પરિદ્દશ્ય ઢાંચો"; Then = "*","પછી"; When = "*","ક્યારે" };
+        'gl' = @{ And = "*","E"; Background = "Contexto"; But = "*","Mais","Pero"; Examples = "Exemplos"; Feature = "Característica"; Given = "*","Dado","Dada","Dados","Dadas"; Name = "Galician"; Native = "galego"; Rule = "Rule"; Scenario = "Exemplo","Escenario"; ScenarioOutline = "Esbozo do escenario"; Then = "*","Entón","Logo"; When = "*","Cando" };
+        'he' = @{ And = "*","וגם"; Background = "רקע"; But = "*","אבל"; Examples = "דוגמאות"; Feature = "תכונה"; Given = "*","בהינתן"; Name = "Hebrew"; Native = "עברית"; Rule = "Rule"; Scenario = "דוגמא","תרחיש"; ScenarioOutline = "תבנית תרחיש"; Then = "*","אז","אזי"; When = "*","כאשר" };
+        'hi' = @{ And = "*","और","तथा"; Background = "पृष्ठभूमि"; But = "*","पर","परन्तु","किन्तु"; Examples = "उदाहरण"; Feature = "रूप लेख"; Given = "*","अगर","यदि","चूंकि"; Name = "Hindi"; Native = "हिंदी"; Rule = "Rule"; Scenario = "परिदृश्य"; ScenarioOutline = "परिदृश्य रूपरेखा"; Then = "*","तब","तदा"; When = "*","जब","कदा" };
+        'hr' = @{ And = "*","I"; Background = "Pozadina"; But = "*","Ali"; Examples = "Primjeri","Scenariji"; Feature = "Osobina","Mogućnost","Mogucnost"; Given = "*","Zadan","Zadani","Zadano","Ukoliko"; Name = "Croatian"; Native = "hrvatski"; Rule = "Rule"; Scenario = "Primjer","Scenarij"; ScenarioOutline = "Skica","Koncept"; Then = "*","Onda"; When = "*","Kada","Kad" };
+        'ht' = @{ And = "*","Ak","Epi","E"; Background = "Kontèks","Istorik"; But = "*","Men"; Examples = "Egzanp"; Feature = "Karakteristik","Mak","Fonksyonalite"; Given = "*","Sipoze","Sipoze ke","Sipoze Ke"; Name = "Creole"; Native = "kreyòl"; Rule = "Rule"; Scenario = "Senaryo"; ScenarioOutline = "Plan senaryo","Plan Senaryo","Senaryo deskripsyon","Senaryo Deskripsyon","Dyagram senaryo","Dyagram Senaryo"; Then = "*","Lè sa a","Le sa a"; When = "*","Lè","Le" };
+        'hu' = @{ And = "*","És"; Background = "Háttér"; But = "*","De"; Examples = "Példák"; Feature = "Jellemző"; Given = "*","Amennyiben","Adott"; Name = "Hungarian"; Native = "magyar"; Rule = "Rule"; Scenario = "Példa","Forgatókönyv"; ScenarioOutline = "Forgatókönyv vázlat"; Then = "*","Akkor"; When = "*","Majd","Ha","Amikor" };
+        'id' = @{ And = "*","Dan"; Background = "Dasar","Latar Belakang"; But = "*","Tapi","Tetapi"; Examples = "Contoh","Misal"; Feature = "Fitur"; Given = "*","Dengan","Diketahui","Diasumsikan","Bila","Jika"; Name = "Indonesian"; Native = "Bahasa Indonesia"; Rule = "Rule","Aturan"; Scenario = "Skenario"; ScenarioOutline = "Skenario konsep","Garis-Besar Skenario"; Then = "*","Maka","Kemudian"; When = "*","Ketika" };
+        'is' = @{ And = "*","Og"; Background = "Bakgrunnur"; But = "*","En"; Examples = "Dæmi","Atburðarásir"; Feature = "Eiginleiki"; Given = "*","Ef"; Name = "Icelandic"; Native = "Íslenska"; Rule = "Rule"; Scenario = "Atburðarás"; ScenarioOutline = "Lýsing Atburðarásar","Lýsing Dæma"; Then = "*","Þá"; When = "*","Þegar" };
+        'it' = @{ And = "*","E"; Background = "Contesto"; But = "*","Ma"; Examples = "Esempi"; Feature = "Funzionalità"; Given = "*","Dato","Data","Dati","Date"; Name = "Italian"; Native = "italiano"; Rule = "Rule"; Scenario = "Esempio","Scenario"; ScenarioOutline = "Schema dello scenario"; Then = "*","Allora"; When = "*","Quando" };
+        'ja' = @{ And = "*","かつ"; Background = "背景"; But = "*","しかし","但し","ただし"; Examples = "例","サンプル"; Feature = "フィーチャ","機能"; Given = "*","前提"; Name = "Japanese"; Native = "日本語"; Rule = "Rule"; Scenario = "シナリオ"; ScenarioOutline = "シナリオアウトライン","シナリオテンプレート","テンプレ","シナリオテンプレ"; Then = "*","ならば"; When = "*","もし" };
+        'jv' = @{ And = "*","Lan"; Background = "Dasar"; But = "*","Tapi","Nanging","Ananging"; Examples = "Conto","Contone"; Feature = "Fitur"; Given = "*","Nalika","Nalikaning"; Name = "Javanese"; Native = "Basa Jawa"; Rule = "Rule"; Scenario = "Skenario"; ScenarioOutline = "Konsep skenario"; Then = "*","Njuk","Banjur"; When = "*","Manawa","Menawa" };
+        'ka' = @{ And = "*","და"; Background = "კონტექსტი"; But = "*","მაგ­რამ"; Examples = "მაგალითები"; Feature = "თვისება"; Given = "*","მოცემული"; Name = "Georgian"; Native = "ქართველი"; Rule = "Rule"; Scenario = "მაგალითად","სცენარის"; ScenarioOutline = "სცენარის ნიმუში"; Then = "*","მაშინ"; When = "*","როდესაც" };
+        'kn' = @{ And = "*","ಮತ್ತು"; Background = "ಹಿನ್ನೆಲೆ"; But = "*","ಆದರೆ"; Examples = "ಉದಾಹರಣೆಗಳು"; Feature = "ಹೆಚ್ಚಳ"; Given = "*","ನೀಡಿದ"; Name = "Kannada"; Native = "ಕನ್ನಡ"; Rule = "Rule"; Scenario = "ಉದಾಹರಣೆ","ಕಥಾಸಾರಾಂಶ"; ScenarioOutline = "ವಿವರಣೆ"; Then = "*","ನಂತರ"; When = "*","ಸ್ಥಿತಿಯನ್ನು" };
+        'ko' = @{ And = "*","그리고"; Background = "배경"; But = "*","하지만","단"; Examples = "예"; Feature = "기능"; Given = "*","조건","먼저"; Name = "Korean"; Native = "한국어"; Rule = "Rule"; Scenario = "시나리오"; ScenarioOutline = "시나리오 개요"; Then = "*","그러면"; When = "*","만일","만약" };
+        'lt' = @{ And = "*","Ir"; Background = "Kontekstas"; But = "*","Bet"; Examples = "Pavyzdžiai","Scenarijai","Variantai"; Feature = "Savybė"; Given = "*","Duota"; Name = "Lithuanian"; Native = "lietuvių kalba"; Rule = "Rule"; Scenario = "Pavyzdys","Scenarijus"; ScenarioOutline = "Scenarijaus šablonas"; Then = "*","Tada"; When = "*","Kai" };
+        'lu' = @{ And = "*","an","a"; Background = "Hannergrond"; But = "*","awer","mä"; Examples = "Beispiller"; Feature = "Funktionalitéit"; Given = "*","ugeholl"; Name = "Luxemburgish"; Native = "Lëtzebuergesch"; Rule = "Rule"; Scenario = "Beispill","Szenario"; ScenarioOutline = "Plang vum Szenario"; Then = "*","dann"; When = "*","wann" };
+        'lv' = @{ And = "*","Un"; Background = "Konteksts","Situācija"; But = "*","Bet"; Examples = "Piemēri","Paraugs"; Feature = "Funkcionalitāte","Fīča"; Given = "*","Kad"; Name = "Latvian"; Native = "latviešu"; Rule = "Rule"; Scenario = "Piemērs","Scenārijs"; ScenarioOutline = "Scenārijs pēc parauga"; Then = "*","Tad"; When = "*","Ja" };
+        'mk-Cyrl' = @{ And = "*","И"; Background = "Контекст","Содржина"; But = "*","Но"; Examples = "Примери","Сценарија"; Feature = "Функционалност","Бизнис потреба","Можност"; Given = "*","Дадено","Дадена"; Name = "Macedonian"; Native = "Македонски"; Rule = "Rule"; Scenario = "Пример","Сценарио","На пример"; ScenarioOutline = "Преглед на сценарија","Скица","Концепт"; Then = "*","Тогаш"; When = "*","Кога" };
+        'mk-Latn' = @{ And = "*","I"; Background = "Kontekst","Sodrzhina"; But = "*","No"; Examples = "Primeri","Scenaria"; Feature = "Funkcionalnost","Biznis potreba","Mozhnost"; Given = "*","Dadeno","Dadena"; Name = "Macedonian (Latin)"; Native = "Makedonski (Latinica)"; Rule = "Rule"; Scenario = "Scenario","Na primer"; ScenarioOutline = "Pregled na scenarija","Skica","Koncept"; Then = "*","Togash"; When = "*","Koga" };
+        'mn' = @{ And = "*","Мөн","Тэгээд"; Background = "Агуулга"; But = "*","Гэхдээ","Харин"; Examples = "Тухайлбал"; Feature = "Функц","Функционал"; Given = "*","Өгөгдсөн нь","Анх"; Name = "Mongolian"; Native = "монгол"; Rule = "Rule"; Scenario = "Сценар"; ScenarioOutline = "Сценарын төлөвлөгөө"; Then = "*","Тэгэхэд","Үүний дараа"; When = "*","Хэрэв" };
+        'mr' = @{ And = "*","आणि","तसेच"; Background = "पार्श्वभूमी"; But = "*","पण","परंतु"; Examples = "उदाहरण"; Feature = "वैशिष्ट्य","सुविधा"; Given = "*","जर","दिलेल्या प्रमाणे"; Name = "Marathi"; Native = "मराठी"; Rule = "नियम"; Scenario = "परिदृश्य"; ScenarioOutline = "परिदृश्य रूपरेखा"; Then = "*","मग","तेव्हा"; When = "*","जेव्हा" };
+        'ne' = @{ And = "*","र","अनी"; Background = "पृष्ठभूमी"; But = "*","तर"; Examples = "उदाहरण","उदाहरणहरु"; Feature = "सुविधा","विशेषता"; Given = "*","दिइएको","दिएको","यदि"; Name = "Nepali"; Native = "नेपाली"; Rule = "नियम"; Scenario = "परिदृश्य"; ScenarioOutline = "परिदृश्य रूपरेखा"; Then = "*","त्यसपछि","अनी"; When = "*","जब" };
+        'nl' = @{ And = "*","En"; Background = "Achtergrond"; But = "*","Maar"; Examples = "Voorbeelden"; Feature = "Functionaliteit"; Given = "*","Gegeven","Stel"; Name = "Dutch"; Native = "Nederlands"; Rule = "Rule"; Scenario = "Voorbeeld","Scenario"; ScenarioOutline = "Abstract Scenario"; Then = "*","Dan"; When = "*","Als","Wanneer" };
+        'no' = @{ And = "*","Og"; Background = "Bakgrunn"; But = "*","Men"; Examples = "Eksempler"; Feature = "Egenskap"; Given = "*","Gitt"; Name = "Norwegian"; Native = "norsk"; Rule = "Regel"; Scenario = "Eksempel","Scenario"; ScenarioOutline = "Scenariomal","Abstrakt Scenario"; Then = "*","Så"; When = "*","Når" };
+        'pa' = @{ And = "*","ਅਤੇ"; Background = "ਪਿਛੋਕੜ"; But = "*","ਪਰ"; Examples = "ਉਦਾਹਰਨਾਂ"; Feature = "ਖਾਸੀਅਤ","ਮੁਹਾਂਦਰਾ","ਨਕਸ਼ ਨੁਹਾਰ"; Given = "*","ਜੇਕਰ","ਜਿਵੇਂ ਕਿ"; Name = "Panjabi"; Native = "ਪੰਜਾਬੀ"; Rule = "Rule"; Scenario = "ਉਦਾਹਰਨ","ਪਟਕਥਾ"; ScenarioOutline = "ਪਟਕਥਾ ਢਾਂਚਾ","ਪਟਕਥਾ ਰੂਪ ਰੇਖਾ"; Then = "*","ਤਦ"; When = "*","ਜਦੋਂ" };
+        'pl' = @{ And = "*","Oraz","I"; Background = "Założenia"; But = "*","Ale"; Examples = "Przykłady"; Feature = "Właściwość","Funkcja","Aspekt","Potrzeba biznesowa"; Given = "*","Zakładając","Mając","Zakładając, że"; Name = "Polish"; Native = "polski"; Rule = "Rule"; Scenario = "Przykład","Scenariusz"; ScenarioOutline = "Szablon scenariusza"; Then = "*","Wtedy"; When = "*","Jeżeli","Jeśli","Gdy","Kiedy" };
+        'pt' = @{ And = "*","E"; Background = "Contexto","Cenário de Fundo","Cenario de Fundo","Fundo"; But = "*","Mas"; Examples = "Exemplos","Cenários","Cenarios"; Feature = "Funcionalidade","Característica","Caracteristica"; Given = "*","Dado","Dada","Dados","Dadas"; Name = "Portuguese"; Native = "português"; Rule = "Regra"; Scenario = "Exemplo","Cenário","Cenario"; ScenarioOutline = "Esquema do Cenário","Esquema do Cenario","Delineação do Cenário","Delineacao do Cenario"; Then = "*","Então","Entao"; When = "*","Quando" };
+        'ro' = @{ And = "*","Si","Și","Şi"; Background = "Context"; But = "*","Dar"; Examples = "Exemple"; Feature = "Functionalitate","Funcționalitate","Funcţionalitate"; Given = "*","Date fiind","Dat fiind","Dată fiind","Dati fiind","Dați fiind","Daţi fiind"; Name = "Romanian"; Native = "română"; Rule = "Rule"; Scenario = "Exemplu","Scenariu"; ScenarioOutline = "Structura scenariu","Structură scenariu"; Then = "*","Atunci"; When = "*","Cand","Când" };
+        'ru' = @{ And = "*","И","К тому же","Также"; Background = "Предыстория","Контекст"; But = "*","Но","А","Иначе"; Examples = "Примеры"; Feature = "Функция","Функциональность","Функционал","Свойство"; Given = "*","Допустим","Дано","Пусть"; Name = "Russian"; Native = "русский"; Rule = "Rule"; Scenario = "Пример","Сценарий"; ScenarioOutline = "Структура сценария"; Then = "*","То","Затем","Тогда"; When = "*","Когда","Если" };
+        'sk' = @{ And = "*","A","A tiež","A taktiež","A zároveň"; Background = "Pozadie"; But = "*","Ale"; Examples = "Príklady"; Feature = "Požiadavka","Funkcia","Vlastnosť"; Given = "*","Pokiaľ","Za predpokladu"; Name = "Slovak"; Native = "Slovensky"; Rule = "Rule"; Scenario = "Príklad","Scenár"; ScenarioOutline = "Náčrt Scenáru","Náčrt Scenára","Osnova Scenára"; Then = "*","Tak","Potom"; When = "*","Keď","Ak" };
+        'sl' = @{ And = "In","Ter"; Background = "Kontekst","Osnova","Ozadje"; But = "Toda","Ampak","Vendar"; Examples = "Primeri","Scenariji"; Feature = "Funkcionalnost","Funkcija","Možnosti","Moznosti","Lastnost","Značilnost"; Given = "Dano","Podano","Zaradi","Privzeto"; Name = "Slovenian"; Native = "Slovenski"; Rule = "Rule"; Scenario = "Primer","Scenarij"; ScenarioOutline = "Struktura scenarija","Skica","Koncept","Oris scenarija","Osnutek"; Then = "Nato","Potem","Takrat"; When = "Ko","Ce","Če","Kadar" };
+        'sr-Cyrl' = @{ And = "*","И"; Background = "Контекст","Основа","Позадина"; But = "*","Али"; Examples = "Примери","Сценарији"; Feature = "Функционалност","Могућност","Особина"; Given = "*","За дато","За дате","За дати"; Name = "Serbian"; Native = "Српски"; Rule = "Rule"; Scenario = "Пример","Сценарио","Пример"; ScenarioOutline = "Структура сценарија","Скица","Концепт"; Then = "*","Онда"; When = "*","Када","Кад" };
+        'sr-Latn' = @{ And = "*","I"; Background = "Kontekst","Osnova","Pozadina"; But = "*","Ali"; Examples = "Primeri","Scenariji"; Feature = "Funkcionalnost","Mogućnost","Mogucnost","Osobina"; Given = "*","Za dato","Za date","Za dati"; Name = "Serbian (Latin)"; Native = "Srpski (Latinica)"; Rule = "Rule"; Scenario = "Scenario","Primer"; ScenarioOutline = "Struktura scenarija","Skica","Koncept"; Then = "*","Onda"; When = "*","Kada","Kad" };
+        'sv' = @{ And = "*","Och"; Background = "Bakgrund"; But = "*","Men"; Examples = "Exempel"; Feature = "Egenskap"; Given = "*","Givet"; Name = "Swedish"; Native = "Svenska"; Rule = "Rule"; Scenario = "Scenario"; ScenarioOutline = "Abstrakt Scenario","Scenariomall"; Then = "*","Så"; When = "*","När" };
+        'ta' = @{ And = "*","மேலும்","மற்றும்"; Background = "பின்னணி"; But = "*","ஆனால்"; Examples = "எடுத்துக்காட்டுகள்","காட்சிகள்","நிலைமைகளில்"; Feature = "அம்சம்","வணிக தேவை","திறன்"; Given = "*","கொடுக்கப்பட்ட"; Name = "Tamil"; Native = "தமிழ்"; Rule = "Rule"; Scenario = "உதாரணமாக","காட்சி"; ScenarioOutline = "காட்சி சுருக்கம்","காட்சி வார்ப்புரு"; Then = "*","அப்பொழுது"; When = "*","எப்போது" };
+        'th' = @{ And = "*","และ"; Background = "แนวคิด"; But = "*","แต่"; Examples = "ชุดของตัวอย่าง","ชุดของเหตุการณ์"; Feature = "โครงหลัก","ความต้องการทางธุรกิจ","ความสามารถ"; Given = "*","กำหนดให้"; Name = "Thai"; Native = "ไทย"; Rule = "Rule"; Scenario = "เหตุการณ์"; ScenarioOutline = "สรุปเหตุการณ์","โครงสร้างของเหตุการณ์"; Then = "*","ดังนั้น"; When = "*","เมื่อ" };
+        'tl' = @{ And = "*","మరియు"; Background = "నేపథ్యం"; But = "*","కాని"; Examples = "ఉదాహరణలు"; Feature = "గుణము"; Given = "*","చెప్పబడినది"; Name = "Telugu"; Native = "తెలుగు"; Rule = "Rule"; Scenario = "ఉదాహరణ","సన్నివేశం"; ScenarioOutline = "కథనం"; Then = "*","అప్పుడు"; When = "*","ఈ పరిస్థితిలో" };
+        'tlh' = @{ And = "*","'ej","latlh"; Background = "mo'"; But = "*","'ach","'a"; Examples = "ghantoH","lutmey"; Feature = "Qap","Qu'meH 'ut","perbogh","poQbogh malja'","laH"; Given = "*","ghu' noblu'","DaH ghu' bejlu'"; Name = "Klingon"; Native = "tlhIngan"; Rule = "Rule"; Scenario = "lut"; ScenarioOutline = "lut chovnatlh"; Then = "*","vaj"; When = "*","qaSDI'" };
+        'tr' = @{ And = "*","Ve"; Background = "Geçmiş"; But = "*","Fakat","Ama"; Examples = "Örnekler"; Feature = "Özellik"; Given = "*","Diyelim ki"; Name = "Turkish"; Native = "Türkçe"; Rule = "Rule"; Scenario = "Örnek","Senaryo"; ScenarioOutline = "Senaryo taslağı"; Then = "*","O zaman"; When = "*","Eğer ki" };
+        'tt' = @{ And = "*","Һәм","Вә"; Background = "Кереш"; But = "*","Ләкин","Әмма"; Examples = "Үрнәкләр","Мисаллар"; Feature = "Мөмкинлек","Үзенчәлеклелек"; Given = "*","Әйтик"; Name = "Tatar"; Native = "Татарча"; Rule = "Rule"; Scenario = "Сценарий"; ScenarioOutline = "Сценарийның төзелеше"; Then = "*","Нәтиҗәдә"; When = "*","Әгәр" };
+        'uk' = @{ And = "*","І","А також","Та"; Background = "Передумова"; But = "*","Але"; Examples = "Приклади"; Feature = "Функціонал"; Given = "*","Припустимо","Припустимо, що","Нехай","Дано"; Name = "Ukrainian"; Native = "Українська"; Rule = "Rule"; Scenario = "Приклад","Сценарій"; ScenarioOutline = "Структура сценарію"; Then = "*","То","Тоді"; When = "*","Якщо","Коли" };
+        'ur' = @{ And = "*","اور"; Background = "پس منظر"; But = "*","لیکن"; Examples = "مثالیں"; Feature = "صلاحیت","کاروبار کی ضرورت","خصوصیت"; Given = "*","اگر","بالفرض","فرض کیا"; Name = "Urdu"; Native = "اردو"; Rule = "Rule"; Scenario = "منظرنامہ"; ScenarioOutline = "منظر نامے کا خاکہ"; Then = "*","پھر","تب"; When = "*","جب" };
+        'uz' = @{ And = "*","Ва"; Background = "Тарих"; But = "*","Лекин","Бирок","Аммо"; Examples = "Мисоллар"; Feature = "Функционал"; Given = "*","Агар"; Name = "Uzbek"; Native = "Узбекча"; Rule = "Rule"; Scenario = "Сценарий"; ScenarioOutline = "Сценарий структураси"; Then = "*","Унда"; When = "*","Агар" };
+        'vi' = @{ And = "*","Và"; Background = "Bối cảnh"; But = "*","Nhưng"; Examples = "Dữ liệu"; Feature = "Tính năng"; Given = "*","Biết","Cho"; Name = "Vietnamese"; Native = "Tiếng Việt"; Rule = "Rule"; Scenario = "Tình huống","Kịch bản"; ScenarioOutline = "Khung tình huống","Khung kịch bản"; Then = "*","Thì"; When = "*","Khi" };
+        'zh-CN' = @{ And = "*","而且","并且","同时"; Background = "背景"; But = "*","但是"; Examples = "例子"; Feature = "功能"; Given = "*","假如","假设","假定"; Name = "Chinese simplified"; Native = "简体中文"; Rule = "Rule"; Scenario = "场景","剧本"; ScenarioOutline = "场景大纲","剧本大纲"; Then = "*","那么"; When = "*","当" };
+        'zh-TW' = @{ And = "*","而且","並且","同時"; Background = "背景"; But = "*","但是"; Examples = "例子"; Feature = "功能"; Given = "*","假如","假設","假定"; Name = "Chinese traditional"; Native = "繁體中文"; Rule = "Rule"; Scenario = "場景","劇本"; ScenarioOutline = "場景大綱","劇本大綱"; Then = "*","那麼"; When = "*","當" }
+    }
 
     Verify-That `
         -condition $allGherkinKeywords.ContainsKey($cultureName) `
@@ -459,9 +505,10 @@ function Build-GherkinKeywordParsers($cultureName)
             Then = (One-Of ($localizedKeywords.Then));
             Examples = (One-Of ($localizedKeywords.Examples | ForEach-Object { $_ + ':' }));
             And = (One-Of ($localizedKeywords.And));
-            But = (One-Of ($localizedKeywords.But))
+            But = (One-Of ($localizedKeywords.But));
+            Rule = (One-Of ($localizedKeywords.Rule | ForEach-Object { $_ + ':' }))
         }
-    $result.Add('Keywords', @($result.Feature, $result.Background, $result.Scenario, $result.ScenarioOutline, $result.Given, $result.When, $result.Then, $result.Examples, $result.And, $result.But | ForEach-Object { $_ }))
+        $result.Add('Keywords', @($result.Feature, $result.Background, $result.Scenario, $result.ScenarioOutline, $result.Rule, $result.Given, $result.When, $result.Then, $result.Examples, $result.And, $result.But | ForEach-Object { $_ }))
     return $result
 }
 
@@ -579,6 +626,16 @@ $ScenarioOutline = (from_ scenarioTemplate in (Scenario-Parser $GherkinKeywordPa
                    (from_ examples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
                    (select_ { @{ ScenarioTemplate = $scenarioTemplate; Examples = $examples } })
 
+$RuleHeader = (from_ ruleName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Rule))),
+              (from_ ruleDescription in $DescriptionHelper),
+              (from_ ruleBackground in (Optional -parser $Background -orElse @{ StepBlocks = $null })),
+              (select_ { @{ RuleTitle = $ruleName; RuleDescription = $ruleDescription; RuleBackground = $ruleBackground } })
+
+$RuleWithExamples = (from_ hdr in (Optional $RuleHeader)),
+                    (from_ exmpls in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
+                    (where_ { ($null -ne $hdr) -or ($exmpls.Length -gt 0) }),
+                    (select_ { @{ RuleHeader = $hdr; RuleExamples = $exmpls } })
+
 $Feature_Header = (from_ featureTags in (Optional $TagsParser)),
                   (from_ featureName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
                   (from_ featureDescription in $DescriptionHelper),
@@ -586,13 +643,13 @@ $Feature_Header = (from_ featureTags in (Optional $TagsParser)),
 
 $Feature = (from_ featureHeader in $Feature_Header),
            (from_ parsedBackground in (Optional -parser $Background -orElse @{ StepBlocks = $null })),
-           (from_ allScenarios in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
+           (from_ allRules in (Repeat $RuleWithExamples -allowZeroRepetition)),
            (select_ { @{
                         Title = $featureHeader.Name;
                         Description = $featureHeader.Description;
                         Tags = $featureHeader.Tags;
                         Background = $parsedBackground;
-                        Scenarios = $allScenarios } })
+                        Rules = $allRules } })
 
 $GherkinDocument = (from_ parsedFeature in (Optional $Feature)),
                    (EndOfContent),
@@ -825,6 +882,28 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
     }
 }
 
+filter Apply-Rules
+{
+    [hashtable] $ruleHeader = $_.RuleHeader
+    $_.RuleExamples | `
+        ForEach-Object {
+            $example = $_
+            if ($null -ne $ruleHeader)
+            {
+                $scenario = switch ($example.ContainsKey('Examples')) 
+                {
+                    $true { $example.ScenarioTemplate } # scenario outline
+                    default { $example } # plain scenario/example
+                }
+    
+                'RuleTitle', 'RuleDescription' | ForEach-Object { $scenario.Add($_, $ruleHeader[$_]) }
+                $scenario.ScenarioBlocks = @(Join-ScenarioBlocks -backgroundBlocks $ruleHeader.RuleBackground.StepBlocks -scenarioBlocks $scenario.ScenarioBlocks)
+            }
+
+            $example
+        }
+}
+
 filter Expand-ScenarioOutline
 {
     if (-not $_.ContainsKey('Examples'))
@@ -908,8 +987,9 @@ function Run-FeatureScenarios($featureFile, $feature)
     [FeatureContext]::Current.FeatureInfo = $feature
     Invoke-GherkinHooks -hookType SetupFeature
 	$scenarioExecutionResults = @()
-    $feature.Scenarios | `
+    $feature.Rules | `
         Except-Nulls | `
+        Apply-Rules | `
         Expand-ScenarioOutline | `
 		Run-SingleScenario -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks | `
 		ForEach-Object { $scenarioExecutionResults += @($_) }
@@ -952,6 +1032,11 @@ $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
         $scriptFilePath = $_
         $scriptFileContent = [FeatureFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
         $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
+        if ($null -eq $parsingResult)
+        {
+            throw "Failed to parse $scriptFilePath feature file"
+        }
+
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
 

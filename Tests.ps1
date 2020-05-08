@@ -33,7 +33,7 @@ function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectF
         $featureExecutionResults = @(& $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `
                                 -scenarios $temporaryFilePath `
                                 -tags $tags `
-                                -cultureName 'en-US' `
+                                -cultureName 'en' `
                                 -logParsingToFile $parsingLogFile `
                                 -logTestRunningToFile $runningLogFile `
                                 -doNotCleanupGherkinRunningInfrastructure `
@@ -182,27 +182,37 @@ function Insert($it, $between, $and_)
     $and_  | ForEach-Object { $_ }
 }
 
-function Fill-Context($context)
+function Fill-Context($context, [hashtable] $extraProperties = $null)
 {
+    $result = @{}
+
     if ($null -eq $context)
     {
-        return @{ Name = ''; Description = $null; Tags = $null }
+        $result = @{ Name = ''; Description = $null; Tags = $null }
     }
-
-    if ($context -is [string])
+    elseif ($context -is [string])
     {
-        return @{ Name = $context; Description = $null; Tags = $null }
+        $result = @{ Name = $context; Description = $null; Tags = $null }
+    }
+    else 
+    {
+        $result = $context
     }
 
     foreach ($propertyName in 'Name', 'Description', 'Tags')
     {
-        if (-not $context.Contains($propertyName))
+        if (-not $result.Contains($propertyName))
         {
-            $context.Add($propertyName, $null)
+            $result.Add($propertyName, $null)
         }
     }
 
-    $context
+    if ($null -ne $extraProperties)
+    {
+        $result += $extraProperties
+    }
+
+    $result
 }
 
 function TestRun($with)
@@ -219,6 +229,18 @@ function Feature($withContext, $with)
 function Scenario($withContext, $with)
 {
     Insert $with -between (Hook 'BeforeScenario' -withContext (Fill-Context $withContext)) -and_ (Hook 'AfterScenario')
+}
+
+function Example($withContext, $from, $with)
+{
+    Insert $with -between (Hook 'BeforeScenario' -withContext (Fill-Context $withContext -extraProperties $from)) -and_ (Hook 'AfterScenario')
+}
+
+function Rule($withContext)
+{
+    $result = @{}
+    (Fill-Context $withContext).GetEnumerator() | Where-Object { $_.Name -ne 'Tags' } | ForEach-Object { $result.Add("Rule$($_.Name)", $_.Value) } 
+    $result
 }
 
 function GivenBlock($with)
@@ -325,8 +347,14 @@ AfterFeature {
 }
 
 BeforeScenario {
-    $scenario = [ScenarioContext]::Current.ScenarioInfo
-    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenario' @{ Name = $scenario.Title; Description = $scenario.Description; Tags = @($scenario.Tags | Except-Nulls) })) })
+    [hashtable] $scenario = [ScenarioContext]::Current.ScenarioInfo
+    $context = @{ Name = $scenario.Title; Description = $scenario.Description; Tags = @($scenario.Tags | Except-Nulls) }
+    if ($scenario.ContainsKey('RuleTitle'))
+    {
+        $context += @{ RuleName = $scenario.RuleTitle; RuleDescription = $scenario.RuleDescription }
+    }
+
+    [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeScenario' $context)) })
 }
 
 AfterScenario {
@@ -431,6 +459,7 @@ Running (Gherkin-Script @"
 -illustrating 'Just one line with keyword <Feature:> in it' | should result in invocation of `
     (Feature 'f0')
 
+
 Running (Gherkin-Script @"
      @SimplestTag
   @TagWithHeadAndTrailingSpaces   
@@ -460,14 +489,14 @@ Scenario: Checking addition
 
 
 Running (Gherkin-Script @"
-Feature: f1
+Feature: f1.1
     describe feature here
 @RequiresTransaction
 Scenario: Checking addition
     describe scenario here
 "@) `
 -illustrating 'Feature with a Tagged and Scenario followed with description' | should result in invocation of `
-    (Feature -withContext @{ Name = 'f1'; Description = @('describe feature here') } `
+    (Feature -withContext @{ Name = 'f1.1'; Description = @('describe feature here') } `
                 -with (Scenario -withContext @{ Name = 'Checking addition'; Description = @('describe scenario here'); Tags = @('RequiresTransaction') }))
 
 
@@ -1117,3 +1146,76 @@ Scenario: z-0
 "@) `
     -illustrating "Application of type convertors for step definition's parameters" `
     -failFast)
+
+#region Using Rule keyword
+Running (Gherkin-Script @"
+Feature: r-001
+Rule: Always Be Closing
+"@) `
+    -illustrating 'Single Rule without Examples' | should result in invocation of `
+    (Feature 'r-001')
+
+
+Running (Gherkin-Script @"
+Feature: r-002
+Rule: Always Be Closing
+Example: r-002, e-01
+    Then everything should be alright
+"@) `
+    -illustrating 'Single Rule with a single example' | should result in invocation of `
+    (Feature 'r-002' -with (Example 'r-002, e-01' -from (Rule 'Always Be Closing') -with (Single-ThenStep 'everything should be alright')))
+
+
+Running (Gherkin-Script @"
+Feature: r-003
+Rule: Always Be Closing
+Example: r-003, e-01
+    Given Call me Ishmael
+Example: r-003, e-02
+    Then everything should be alright
+"@) `
+-illustrating 'Single Rule with several examples' | should result in invocation of `
+(Feature 'r-003' -with `
+    (Example 'r-003, e-01' -from (Rule 'Always Be Closing') -with (Single-GivenStep 'Call me Argument(Ishmael)')),
+    (Example 'r-003, e-02' -from (Rule 'Always Be Closing') -with (Single-ThenStep 'everything should be alright')))
+
+
+Running (Gherkin-Script @"
+Feature: r-004
+Rule: 1st rule
+Example: r-004.1, e-01
+    Given Call me Ishmael
+Rule: 2nd rule
+Example: r-004.2, e-01
+    Then everything should be alright
+"@) `
+-illustrating 'Several Rules with single examples in each' | should result in invocation of `
+(Feature 'r-004' -with `
+    (Example 'r-004.1, e-01' -from (Rule '1st rule') -with (Single-GivenStep 'Call me Argument(Ishmael)')),
+    (Example 'r-004.2, e-01' -from (Rule '2nd rule') -with (Single-ThenStep 'everything should be alright')))
+
+
+Running (Gherkin-Script @"
+Feature: r-005
+Rule: Always Be Closing
+    that's a quote from the 'Glengarry Glen Ross' movie
+Background: 
+    Given Call me Ishmael
+Example: r-005, e-01
+    Then everything should be alright
+Example: r-005, e-02
+    When 1 plus 2 gives 3
+"@) `
+    -illustrating 'Rule with a description and a background' | should result in invocation of `
+    (Feature 'r-005' -with `
+        (Example 'r-005, e-01' `
+            -from (Rule -withContext @{ Name = 'Always Be Closing'; Description = @("that's a quote from the 'Glengarry Glen Ross' movie") }) `
+            -with `
+                (Single-GivenStep 'Call me Argument(Ishmael)'), 
+                (Single-ThenStep 'everything should be alright')),
+        (Example 'r-005, e-02' `
+            -from (Rule -withContext @{ Name = 'Always Be Closing'; Description = @("that's a quote from the 'Glengarry Glen Ross' movie") }) `
+            -with `
+                (Single-GivenStep 'Call me Argument(Ishmael)'),
+                (Single-WhenStep 'Argument(1) plus Argument(2) gives Argument(3)')))
+#endregion
