@@ -1,6 +1,19 @@
 Set-StrictMode -Version Latest
 
 #region Miscellaneous
+function Verify-That($condition, $message)
+{
+    if (-Not $condition)
+    {
+        $exactMessage = switch($null)
+                        {
+                            { $message -is [string] } { $message }
+                            { $message -is [scriptblock] } { & $message }
+                        }
+        throw $exactMessage
+    }
+}
+
 function Describe-ErrorRecord($errorRecord)
 {
     function Try-AppendPositionMessage($errRec, $errorMessages)
@@ -100,6 +113,54 @@ class ScenarioContext : GherkinContextBase
 }
 #endregion
 
+class CustomTypeConverters
+{
+    [System.Collections.Generic.IDictionary[Type, System.Reflection.MethodInfo]] hidden $_registeredConverters = [System.Collections.Generic.Dictionary[Type, System.Reflection.MethodInfo]]::new()
+
+    [void] RegisterConverter([System.Reflection.MethodInfo] $method)
+    {
+        $targetType = $method.ReturnType
+        Verify-That `
+            -condition (-not $this._registeredConverters.ContainsKey($targetType)) `
+            -message { 
+                $duplicateConverter = $this._registeredConverters[$targetType]
+                "Both method $($method.DeclaringType.Name).$($method.Name) and method $($duplicateConverter.DeclaringType.Name).$($duplicateConverter.Name) define custom conversion to the type $($targetType.FullName)" 
+            }
+
+        $this._registeredConverters.Add($targetType, $method)
+    }
+
+    [object] ApplyTo([object] $value, [Type] $type)
+    {
+        $result = switch ($this._registeredConverters.ContainsKey($type))
+                {
+                    $false { $value }
+                    $true  { $this._registeredConverters[$type].Invoke($null, @($value)) }
+                }
+        return $result
+    }
+
+    [object[]] ApplyToAll([object[]] $values, [Type[]] $targetTypes)
+    {
+        Verify-That `
+            -condition ($values.Length -eq $targetTypes.Length) `
+            -message "Program logic error: there's a mismatch between the actual values ($($values.Length)) and target types ($($targetTypes.Length)) for those values"
+
+        $result = switch ($values.Length)
+                {
+                    0 { @() }
+                    default { @(0..($values.Length - 1) | ForEach-Object { $this.ApplyTo($values[$_], $targetTypes[$_]) }) }
+                }
+
+        return $result
+    }
+}
+
+class Known
+{
+    static [CustomTypeConverters] $CustomTypeConverters = [CustomTypeConverters]::new()
+}
+
 #region Gherkin Hooks Infrastructure
 function Clean-GherkinRunningInfrastructure()
 {
@@ -172,6 +233,16 @@ function Register-AvailableTestParamers([array] $dynamicParamers)
     }
 
     Set-Variable -Name GlobalTestParametersHashtable -Scope Global -Value $result
+}
+#endregion
+
+#region Custom Type Converters
+function Register-CustomTypeConverter([Type] $typeWithConverterMethods)
+{
+    $typeWithConverterMethods.GetMethods([System.Reflection.BindingFlags]::Static + [System.Reflection.BindingFlags]::Public) | `
+        ForEach-Object {
+            [Known]::CustomTypeConverters.RegisterConverter($_)
+        } 
 }
 #endregion
 

@@ -322,6 +322,18 @@ function Build-ScenarioName($scenarioOutlineName, $parameterName, $parameterValu
     "$scenarioOutlineName ($parameterName`: $parameterValue)"
 }
 
+class Pair 
+{ 
+    [int] $First; 
+    [int] $Second; 
+
+    Pair([int] $f, [int] $s) 
+    { 
+        $this.First = $f; 
+        $this.Second = $s 
+    } 
+} 
+
 Clean-GherkinRunningInfrastructure
 
 BeforeTestRun {
@@ -432,6 +444,11 @@ Given ([regex] 'a StringComparison object with value (.*)') {
     [ScenarioContext]::Current.UpdateValue('CurrentTypedObject', $stringComparison)
 }
 
+Given ([regex] 'Pair object with the values (.*)') {
+    param ([Pair] $pair)
+    [ScenarioContext]::Current.UpdateValue('CurrentTypedObject', $pair)
+}
+
 Then ([regex] 'its (.*) property should be equal to (.*)') {
     param ([string] $propertyName, $expectedPropertyValue)
     $currentTypedObject = [ScenarioContext]::Current.GetValue('CurrentTypedObject')
@@ -449,6 +466,14 @@ Then ([regex] 'its numerical value should be equal to (.*)') {
         throw "`$currentTypedObject is expected to be $expectedValue while it is $currentTypedObject"
     }
 }
+
+Given ([regex] 'custom type converters defined in class (.*)') {
+    param ($className, $table)
+    $methodDefinitions = @($table.Rows | ForEach-Object { "static $($_.'Converting method definition')" }) -join [Environment]::NewLine
+    Invoke-Expression "class $className { $([Environment]::NewLine) $methodDefinitions $([Environment]::NewLine) }"
+    Register-CustomTypeConverter ([System.Management.Automation.PSTypeName]$className).Type
+}
+
 
 Running (Gherkin-Script '') -illustrating 'Empty *.feature' | should result in invocation of @()
 
@@ -1135,7 +1160,7 @@ Scenario: s-1
 -illustrating 'All failed assertions get combined in the failed scenario outcome' | should result in the following failure `
     @('This is the first error coming from scenario', 'Another error came out', 'And this is the 3rd, final error')
 
-
+#region Type convertors for step definition's parameters
 [void] (Running (Gherkin-Script @"
 Feature: z
 Scenario: z-0
@@ -1144,8 +1169,22 @@ Scenario: z-0
    Given a StringComparison object with value InvariantCultureIgnoreCase
     Then its numerical value should be equal to 3
 "@) `
-    -illustrating "Application of type convertors for step definition's parameters" `
+    -illustrating "Application of standard type convertors for step definition's parameters" `
     -failFast)
+
+[void] (Running (Gherkin-Script @"
+Feature: z
+Scenario: z-1
+    Given custom type converters defined in class MyConverters 
+    | Converting method definition                                                                                                                |
+    | [Pair] Transform([string] `$text) { `$firstAndSecond = `$text -split ','; return [Pair]::new([int]`$firstAndSecond[0], [int]`$firstAndSecond[1]) } |
+    And a Pair object with the values 120,-5
+    Then its First property should be equal to 120
+    And its Second property should be equal to -5
+"@) `
+    -illustrating "Application of custom type convertors for step definition's parameters" `
+    -failFast)
+#endgion
 
 #region Using Rule keyword
 Running (Gherkin-Script @"

@@ -31,14 +31,6 @@ trap {
 }
 
 #region Miscellaneous
-function Verify-That($condition, $message)
-{
-    if (-Not $condition)
-    {
-        throw $message
-    }
-}
-
 function Validate($parameters)
 {
     foreach ($parameter in $parameters)
@@ -715,6 +707,18 @@ function Invoke-GherkinHooks($hookType)
 
 function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
 {
+    function Get-ScriptBlockParameterTypes([scriptblock] $scriptBlock)
+    {
+        try 
+        {
+            $scriptBlock.Ast.ParamBlock.Parameters | ForEach-Object { $_.StaticType }
+        }
+        catch [System.Management.Automation.PropertyNotFoundException] 
+        {
+            @()
+        }
+    }
+
     $stepDefinitionsOfGivenType = switch ($stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly -ErrorAction Ignore)
     {
         $null { @() }
@@ -737,7 +741,11 @@ function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
                     { $argumentsNumber -gt 1 } { @(@($matchedGroups)[1..($argumentsNumber - 1)] | ForEach-Object { $_.ToString() }) }
                     default { @() }
                 }
-            @{ StepPattern = $matchingStep.StepPattern; StepScript = $matchingStep.StepScript; StepArguments = @($matchedArgumentValues) + @($extraArgument | Except-Nulls) }
+            @{ 
+                StepPattern = $matchingStep.StepPattern; 
+                StepScript = $matchingStep.StepScript; 
+                StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($matchedArgumentValues) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $matchingStep.StepScript)) 
+            }
         }
         default {
             throw @"
