@@ -667,11 +667,11 @@ function Build-ScenarioExecutionResults($scenario, [ScenarioOutcome] $scenarioOu
 }
 #endregion
 
-function Invoke-GherkinHooks($hookType)
+function Invoke-GherkinHooks([HookType] $hookType)
 {
     function Tags-AllowHookInvocation([array] $requiredTags)
     {
-        if ($requiredTags.Length -eq 0 -or $hookType.EndsWith('TestRun'))
+        if ($requiredTags.Length -eq 0 -or $hookType.ToString().EndsWith('TestRun'))
         {
             return $True
         }
@@ -687,25 +687,26 @@ function Invoke-GherkinHooks($hookType)
 
     switch ($hookType)
     {
-        'SetupTestRun' { Log-TestRunning 'Starting test run' }
-        'SetupFeature' { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        'SetupScenario' { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        [HookType]::SetupTestRun { Log-TestRunning 'Starting test run' }
+        [HookType]::SetupFeature { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        [HookType]::SetupScenario { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
     }
 
-    foreach ($hookData in (Get-GherkinHooks -hookType $hookType | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
+    foreach ($hookData in ([Known]::GherkinHooks.ForType($hookType) | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
     {
         & $hookData.Script
     }
 
     switch ($hookType)
     {
-        'TeardownTestRun' { Log-TestRunning 'Finished test run' }
-        'TeardownFeature' { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        'TeardownScenario' { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        [HookType]::TeardownTestRun { Log-TestRunning 'Finished test run' }
+        [HookType]::TeardownFeature { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        [HookType]::TeardownScenario { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
     }
 }
 
-function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
+# $extraArgument's type should've been [string] as well, but see https://github.com/PowerShell/PowerShell/issues/4616
+function Bind-ToStepExecuter([StepType] $stepType, [string] $stepText, $extraArgument)
 {
     function Get-ScriptBlockParameterTypes([scriptblock] $scriptBlock)
     {
@@ -719,41 +720,11 @@ function Bind-ToStepExecuter($stepType, $stepText, $extraArgument)
         }
     }
 
-    $stepDefinitionsOfGivenType = switch ($stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly -ErrorAction Ignore)
-    {
-        $null { @() }
-        default { @($stepDefinitionDictionary[$stepType] | Except-Nulls) }
-    }
-
-    $matchingStepDefinitions = @($stepDefinitionsOfGivenType | `
-                                 ForEach-Object { @{ StepPattern = $_.StepPattern; StepPatternMatchingResult = $_.StepPattern.Match($stepText); StepScript = $_.StepScript } } | `
-                                 Where-Object { $_.StepPatternMatchingResult.Success})
-
-    switch ($matchingStepDefinitions.Length) {
-        0 {
-            throw "Could not locate step definition for the step [$stepText] of type [$stepType]."
-        }
-        1 {
-            $matchingStep = $matchingStepDefinitions[0]
-            $matchedGroups = $matchingStep.StepPatternMatchingResult.Groups
-            $matchedArgumentValues = switch ($argumentsNumber = $matchedGroups.Count)
-                {
-                    { $argumentsNumber -gt 1 } { @(@($matchedGroups)[1..($argumentsNumber - 1)] | ForEach-Object { $_.ToString() }) }
-                    default { @() }
-                }
-            @{ 
-                StepPattern = $matchingStep.StepPattern; 
-                StepScript = $matchingStep.StepScript; 
-                StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($matchedArgumentValues) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $matchingStep.StepScript)) 
-            }
-        }
-        default {
-            throw @"
-The step with text [$stepText] is matched by each one of the following StepDefinition patterns:
-$([String]::Join([Environment]::NewLine, @($matchingStepDefinitions | ForEach-Object { "$($_.StepPattern)" })))
-Please refine the pattern's regex-es so that each step text was matched by exaqclty one pattern
-"@
-        }
+    $match = [Known]::StepDefinitions.Match($stepType, $stepText)
+    @{ 
+        StepPattern = $match.StepBinding.Pattern; 
+        StepScript = $match.StepBinding.Script;
+        StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($match.StepArguments) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $match.StepBinding.Script)) 
     }
 }
 
@@ -771,9 +742,9 @@ function Run-ScenarioStep($stepType)
         }
 
         $stepStopwatch = [system.diagnostics.stopwatch]::StartNew()
-        Invoke-GherkinHooks -hookType SetupScenarioStep
+        Invoke-GherkinHooks -hookType ([HookType]::SetupScenarioStep)
         Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments
-        Invoke-GherkinHooks -hookType TeardownScenarioStep
+        Invoke-GherkinHooks -hookType ([HookType]::TeardownScenarioStep)
         Log-TestRunning "Finished executing step '$($stepBinding.StepPattern)' (took $([int]$stepStopwatch.Elapsed.TotalSeconds) seconds)."
     }
 }
@@ -782,9 +753,9 @@ filter Run-ScenarioBlock
 {
     $currentBlock = $_
     [ScenarioContext]::Current.ScenarioInfo.CurrentScenarioBlock = $currentBlock.BlockType
-    Invoke-GherkinHooks -hookType SetupScenarioBlock
+    Invoke-GherkinHooks -hookType ([HookType]::SetupScenarioBlock)
     $currentBlock.Steps | Run-ScenarioStep $currentBlock.BlockType
-    Invoke-GherkinHooks -hookType TeardownScenarioBlock
+    Invoke-GherkinHooks -hookType ([HookType]::TeardownScenarioBlock)
 }
 
 function Join-ScenarioBlocks($backgroundBlocks, $scenarioBlocks)
@@ -856,9 +827,9 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             [ScenarioContext]::Current = New-Object ScenarioContext
             [ScenarioContext]::Current.ScenarioInfo = $scenario
 
-            Invoke-GherkinHooks -hookType SetupScenario
+            Invoke-GherkinHooks -hookType ([HookType]::SetupScenario)
             Join-ScenarioBlocks -backgroundBlocks $backgroundBlocks -scenarioBlocks $scenario.ScenarioBlocks | Run-ScenarioBlock
-            Invoke-GherkinHooks -hookType TeardownScenario
+            Invoke-GherkinHooks -hookType ([HookType]::TeardownScenario)
 
             $failedAssertions = Get-AllFailedAssertionsInfo
             if ($null -ne $failedAssertions)
@@ -993,7 +964,7 @@ function Run-FeatureScenarios($featureFile, $feature)
 {
     [FeatureContext]::Current = New-Object FeatureContext
     [FeatureContext]::Current.FeatureInfo = $feature
-    Invoke-GherkinHooks -hookType SetupFeature
+    Invoke-GherkinHooks -hookType ([HookType]::SetupFeature)
 	$scenarioExecutionResults = @()
     $feature.Rules | `
         Except-Nulls | `
@@ -1001,7 +972,7 @@ function Run-FeatureScenarios($featureFile, $feature)
         Expand-ScenarioOutline | `
 		Run-SingleScenario -featureTags $feature.Tags -backgroundBlocks $feature.Background.StepBlocks | `
 		ForEach-Object { $scenarioExecutionResults += @($_) }
-    Invoke-GherkinHooks -hookType TeardownFeature
+    Invoke-GherkinHooks -hookType ([HookType]::TeardownFeature)
 	@{ Feature = $feature; ScenarioExecutionResults = $scenarioExecutionResults }
 }
 #endregion
@@ -1054,9 +1025,9 @@ $featureExecutionResults = @()
 
 if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $Null -ne $parsedScenarios[0].Feature))
 {
-    Invoke-GherkinHooks -hookType SetupTestRun
+    Invoke-GherkinHooks -hookType ([HookType]::SetupTestRun)
     $featureExecutionResults = @($parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature })
-    Invoke-GherkinHooks -hookType TeardownTestRun
+    Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
 }
 
 return $featureExecutionResults

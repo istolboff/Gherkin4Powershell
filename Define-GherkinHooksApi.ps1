@@ -65,6 +65,20 @@ enum StepType
     Then
 }
 
+enum HookType
+{
+    SetupTestRun
+    TeardownTestRun
+    SetupFeature
+    TeardownFeature
+    SetupScenario
+    TeardownScenario
+    SetupScenarioBlock
+    TeardownScenarioBlock
+    SetupScenarioStep
+    TeardownScenarioStep
+}
+
 enum ScenarioOutcome
 {
     Failed
@@ -113,6 +127,130 @@ class ScenarioContext : GherkinContextBase
 }
 #endregion
 
+class ExecutionHook
+{
+    [scriptblock] $Script
+
+    [string[]] $Tags
+
+    ExecutionHook([scriptblock] $sb, [string[]] $t)
+    {
+        $this.Script = $sb
+        $this.Tags = $t
+    }
+}
+
+class GherkinHooks
+{
+    [System.Collections.Generic.IDictionary[HookType, System.Collections.Generic.List[ExecutionHook]]] hidden $_registeredHooks
+
+    GherkinHooks()
+    {
+        $this._registeredHooks = [System.Collections.Generic.Dictionary[HookType, System.Collections.Generic.List[ExecutionHook]]]::new()
+        [Enum]::GetValues([HookType]) | ForEach-Object { $this._registeredHooks.Add($_, [System.Collections.Generic.List[ExecutionHook]]::new()) }
+    }
+
+    [void] RegisterHook([HookType] $hookType, [ExecutionHook] $hook)
+    {
+        $this._registeredHooks[$hookType].Add($hook)
+    }
+
+    [ExecutionHook[]] ForType([HookType] $hookType)
+    {
+        return $this._registeredHooks[$hookType].ToArray()
+    }
+
+    [void] Clear()
+    {
+        $this._registeredHooks.Values | ForEach-Object { $_.Clear() }
+    }
+}
+
+class StepBinding
+{
+    [regex] $Pattern
+
+    [scriptblock] $Script
+
+    StepBinding([regex] $sp, [scriptblock] $ss)
+    {
+        $this.Pattern = $sp
+        $this.Script = $ss
+    }
+
+    [MatchedStepBinding] TryMatch([string] $stepText)
+    {
+        $matchingResult = $this.Pattern.Match($stepText)
+        if (-not $matchingResult.Success)
+        {
+            return $null
+        }
+
+        $matchedGroups = $matchingResult.Groups
+        if ($matchedGroups.Count -le 1)
+        {
+            return [MatchedStepBinding]::new($this, @())
+        }
+
+        return [MatchedStepBinding]::new($this, @(@($matchedGroups)[1..($matchedGroups.Count - 1)] | ForEach-Object { $_.ToString() }))
+    }
+}
+
+class MatchedStepBinding
+{
+    [StepBinding] $StepBinding
+
+    [string[]] $StepArguments 
+
+    MatchedStepBinding([StepBinding] $sb, [string[]] $sa )
+    {
+        $this.StepBinding = $sb
+        $this.StepArguments = $sa
+    }
+}
+
+class StepDefinitions
+{
+    [System.Collections.Generic.IDictionary[StepType, System.Collections.Generic.List[StepBinding]]] hidden $_registeredDefinitions
+
+    StepDefinitions()
+    {
+        $this._registeredDefinitions = [System.Collections.Generic.Dictionary[StepType, System.Collections.Generic.List[StepBinding]]]::new()
+        [Enum]::GetValues([StepType]) | ForEach-Object { $this._registeredDefinitions.Add($_, [System.Collections.Generic.List[StepBinding]]::new()) }
+    }
+
+    [void] RegisterDefinition([StepType] $stepType, [StepBinding] $stepBinding)
+    {
+        $this._registeredDefinitions[$stepType].Add($stepBinding)
+    }
+
+    [MatchedStepBinding] Match([StepType] $stepType, [string] $stepText)
+    {
+        $matchingStepDefinitions = @($this._registeredDefinitions[$stepType] | `
+                                        ForEach-Object { $_.TryMatch($stepText) } | `
+                                        Where-Object { $null -ne $_ })
+
+        Verify-That `
+            -condition ($matchingStepDefinitions.Length -gt 0) `
+            -message "Could not locate step definition for the step [$stepText] of type [$stepType]."
+
+        Verify-That `
+            -condition ($matchingStepDefinitions.Length -lt 2) `
+            -message @"
+The step with text [$stepText] is matched by each one of the following StepDefinition patterns:
+$([String]::Join([Environment]::NewLine, @($matchingStepDefinitions | ForEach-Object { "$($_.StepBinding.Pattern)" })))
+Please refine the pattern's regex-es so that each step text was matched by exaqclty one pattern.
+"@
+
+        return $matchingStepDefinitions[0]
+    }
+
+    [void] Clear()
+    {
+        $this._registeredDefinitions.Values | ForEach-Object { $_.Clear() }
+    }
+}
+
 class CustomTypeConverters
 {
     [System.Collections.Generic.IDictionary[Type, System.Reflection.MethodInfo]] hidden $_registeredConverters = [System.Collections.Generic.Dictionary[Type, System.Reflection.MethodInfo]]::new()
@@ -158,35 +296,21 @@ class CustomTypeConverters
 
 class Known
 {
+    static [GherkinHooks] $GherkinHooks = [GherkinHooks]::new()
+    static [StepDefinitions] $StepDefinitions = [StepDefinitions]::new()
     static [CustomTypeConverters] $CustomTypeConverters = [CustomTypeConverters]::new()
 }
 
-#region Gherkin Hooks Infrastructure
+#region Gherkin Test Infrastructure
 function Clean-GherkinRunningInfrastructure()
 {
-	Remove-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ErrorAction SilentlyContinue
-	Remove-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ErrorAction SilentlyContinue
+    [Known]::GherkinHooks.Clear()
+    [Known]::StepDefinitions.Clear()
 }
 
 function Setup-TestRunContext
 {
     [TestRunContext]::Current = [TestRunContext]::new()
-}
-
-function Get-GherkinHooks($hookType)
-{
-    if (-Not (Test-Path variable:global:GherkinHooksDictionary03C98485EFD84C888750187736C181A7))
-    {
-        return @()
-    }
-
-    $hooksDictionary = Get-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-    if (-Not ($hooksDictionary.Contains($hookType)))
-    {
-        return @()
-    }
-
-    return $hooksDictionary[$hookType]
 }
 #endregion
 
@@ -247,109 +371,71 @@ function Register-CustomTypeConverter([Type] $typeWithConverterMethods)
 #endregion
 
 #region Hook setters
-function Add-GherkinHook($hookType, [scriptblock] $hookScript, [array] $tags)
+function BeforeTestRun([scriptblock] $hookScript, [string[]] $tags)
 {
-    if (-Not (Test-Path variable:global:GherkinHooksDictionary03C98485EFD84C888750187736C181A7))
-    {
-        Set-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -Value @{}
-    }
-
-    $hooksDictionary = Get-Variable -Name GherkinHooksDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-
-    if (-Not ($hooksDictionary.Contains($hookType)))
-    {
-        $newArrayList = New-Object System.Collections.ArrayList
-        $hooksDictionary.Add($hookType, $newArrayList)
-    }
-
-    $allHooksOfType = $hooksDictionary.Item($hookType)
-    $allHooksOfType.Add(@{ Script = $hookScript; Tags = $tags }) | Out-Null
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupTestRun, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function BeforeTestRun([scriptblock] $hookScript, [array] $tags)
+function AfterTestRun([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook SetupTestRun $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownTestRun, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function AfterTestRun([scriptblock] $hookScript, [array] $tags)
+function BeforeFeature([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook TeardownTestRun $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupFeature, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function BeforeFeature([scriptblock] $hookScript, [array] $tags)
+function AfterFeature([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook SetupFeature $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownFeature, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function AfterFeature([scriptblock] $hookScript, [array] $tags)
+function BeforeScenario([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook TeardownFeature $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenario, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function BeforeScenario([scriptblock] $hookScript, [array] $tags)
+function AfterScenario([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook SetupScenario $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenario, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function AfterScenario([scriptblock] $hookScript, [array] $tags)
+function BeforeScenarioBlock([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook TeardownScenario $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioBlock, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function BeforeScenarioBlock([scriptblock] $hookScript, [array] $tags)
+function AfterScenarioBlock([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook SetupScenarioBlock $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioBlock, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function AfterScenarioBlock([scriptblock] $hookScript, [array] $tags)
+function BeforeStep([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook TeardownScenarioBlock $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioStep, [ExecutionHook]::new($hookScript, $tags))
 }
 
-function BeforeStep([scriptblock] $hookScript, [array] $tags)
+function AfterStep([scriptblock] $hookScript, [string[]] $tags)
 {
-    Add-GherkinHook SetupScenarioStep $hookScript $tags
-}
-
-function AfterStep([scriptblock] $hookScript, [array] $tags)
-{
-    Add-GherkinHook TeardownScenarioStep $hookScript $tags
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioStep, [ExecutionHook]::new($hookScript, $tags))
 }
 #endregion
 
 #region Step definitions
-function Add-GherkinStepDefinition([StepType] $stepType, [regex]$stepPattern, [scriptblock]$stepScript)
-{
-    if (-Not (Test-Path variable:global:GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7))
-    {
-        Set-Variable `
-            -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 `
-            -Scope Global `
-            -Value @{ 
-                [StepType]::Given = (New-Object System.Collections.ArrayList); 
-                [StepType]::When = (New-Object System.Collections.ArrayList); 
-                [StepType]::Then = (New-Object System.Collections.ArrayList)
-            }
-    }
-
-    $stepDefinitionDictionary = Get-Variable -Name GherkinStepDefinitionDictionary03C98485EFD84C888750187736C181A7 -Scope Global -ValueOnly
-    $allStepDefinitionsOfType = $stepDefinitionDictionary.Item($stepType)
-    $allStepDefinitionsOfType.Add(@{ StepPattern = $stepPattern; StepScript = $stepScript }) | Out-Null
-}
-
 function Given([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType ([StepType]::Given) -stepPattern $stepPattern -stepScript $stepScript
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::Given, [StepBinding]::new($stepPattern, $stepScript))
 }
 
 function When([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType ([StepType]::When) -stepPattern $stepPattern -stepScript $stepScript
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::When, [StepBinding]::new($stepPattern, $stepScript))
 }
 
 function Then([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    Add-GherkinStepDefinition -stepType ([StepType]::Then) -stepPattern $stepPattern -stepScript $stepScript
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::Then, [StepBinding]::new($stepPattern, $stepScript))
 }
 
 function Given-When([regex]$stepPattern, [scriptblock] $stepScript)
