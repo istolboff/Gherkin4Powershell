@@ -87,6 +87,21 @@ enum ScenarioOutcome
 }
 #endregion
 
+#region Table
+class GherkinTable
+{
+    [string[]] $Header
+
+    [hashtable[]] $Rows
+
+    GherkinTable([string[]] $h, [hashtable[]] $r)
+    {
+        $this.Header = $h
+        $this.Rows = $r
+    }
+}
+#endregion
+
 #region [TestRun|Feature|Scenario]Context
 class GherkinContextBase 
 {
@@ -127,6 +142,7 @@ class ScenarioContext : GherkinContextBase
 }
 #endregion
 
+#region Step Definitions & Hooks
 class ExecutionHook
 {
     [scriptblock] $Script
@@ -296,21 +312,17 @@ class CustomTypeConverters
 
 class Known
 {
-    static [GherkinHooks] $GherkinHooks = [GherkinHooks]::new()
     static [StepDefinitions] $StepDefinitions = [StepDefinitions]::new()
+    static [GherkinHooks] $GherkinHooks = [GherkinHooks]::new()
     static [CustomTypeConverters] $CustomTypeConverters = [CustomTypeConverters]::new()
 }
+#endregion
 
 #region Gherkin Test Infrastructure
 function Clean-GherkinRunningInfrastructure()
 {
     [Known]::GherkinHooks.Clear()
     [Known]::StepDefinitions.Clear()
-}
-
-function Setup-TestRunContext
-{
-    [TestRunContext]::Current = [TestRunContext]::new()
 }
 #endregion
 

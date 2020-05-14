@@ -512,8 +512,10 @@ $Comment = ([regex]'\s*#.*$')
 
 $TagLine = Repeat ([regex]'\s*@(\S+)')
 
-$TagsParser = (from_ tagNames in (Repeat (Complete-Line $TagLine))),
+$TagsParserCore = (from_ tagNames in (Repeat (Complete-Line $TagLine))),
               (select_ { @($tagNames | ForEach-Object { $_ }) })
+
+$TagsParser = Optional $TagsParserCore -orElse @()
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
@@ -542,7 +544,8 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 
                                         $resultingRow
                                     })
-                 @{ Header = @($tableHeaderNames); Rows = @($parsedTableRows) }
+
+                 [GherkinTable]::new(@($tableHeaderNames), @($parsedTableRows))
              })
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
@@ -594,7 +597,7 @@ $Background = (from_ backgroundName in (Complete-Line (Gherkin-LineParser $Gherk
 
 function Scenario-Parser($scenarioOrScenarioOutlineLexem)
 {
-    return  (from_ scenarioTags in (Optional $TagsParser)),
+    return  (from_ scenarioTags in $TagsParser),
             (from_ scenarioName in (Complete-Line (Gherkin-LineParser $scenarioOrScenarioOutlineLexem))),
             (from_ scenarioDescription in $DescriptionHelper),
             (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
@@ -603,7 +606,7 @@ function Scenario-Parser($scenarioOrScenarioOutlineLexem)
 
 $Scenario = Scenario-Parser $GherkinKeywordParsers.Scenario
 
-$ExamplesDefinition = (from_ examplesTags in (Optional $TagsParser)),
+$ExamplesDefinition = (from_ examplesTags in $TagsParser),
                       (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Examples)),
                       (from_ examplesDescription in $DescriptionHelper),
                       (from_ examplesTable in (Optional $DataTable)),
@@ -628,7 +631,7 @@ $RuleWithExamples = (from_ hdr in (Optional $RuleHeader)),
                     (where_ { ($null -ne $hdr) -or ($exmpls.Length -gt 0) }),
                     (select_ { @{ RuleHeader = $hdr; RuleExamples = $exmpls } })
 
-$Feature_Header = (from_ featureTags in (Optional $TagsParser)),
+$Feature_Header = (from_ featureTags in $TagsParser),
                   (from_ featureName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Feature))),
                   (from_ featureDescription in $DescriptionHelper),
                   (select_ { @{ Name = $featureName; Description = $featureDescription; Tags = $featureTags } })
@@ -1019,7 +1022,7 @@ $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
 
-Setup-TestRunContext
+[TestRunContext]::Current = [TestRunContext]::new()
 
 $featureExecutionResults = @()
 

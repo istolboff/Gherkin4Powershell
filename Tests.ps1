@@ -76,35 +76,20 @@ function Gherkin-Script($scriptContent)
     $scriptContent
 }
 
-function Convert-ToXmlLines($complexObject)
-{
-    $sw = New-Object System.IO.StringWriter
-    $writer = New-Object System.Xml.XmlTextwriter($sw)
-    try
-    {
-        $writer.Formatting = [System.XML.Formatting]::Indented
-        ($complexObject | ConvertTo-Xml -NoTypeInformation).WriteContentTo($writer)
-        return @($sw.ToString().Split([Environment]::NewLine) | Where-Object { $_ -ne ''} )
-    }
-    finally
-    {
-        $writer.Close()
-        $sw.Close()
-    }
-}
-
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
-    if (-Not [string]::IsNullOrEmpty($logToFolder) -and ($Null -ne (Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue)))
+    function Get-JsonLines($value) { ($value | ConvertTo-Json -Depth 10) -split [Environment]::NewLine }
+
+    $referenceLines = Get-JsonLines $referenceObject
+    $differenceLines = Get-JsonLines $differenceObject
+
+    if (-Not [string]::IsNullOrEmpty($logToFolder))
     {
-        $referenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
-        $differenceObject | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
+        $referenceLines | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
+        $differenceLines | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
     }
 
-    $referenceLines = Convert-ToXmlLines $referenceObject
-    $differenceLines = Convert-ToXmlLines $differenceObject
-
-    Compare-Object -ReferenceObject @($referenceLines) -DifferenceObject @($differenceLines)
+    Compare-Object -ReferenceObject @($referenceLines) -DifferenceObject @($differenceLines) -SyncWindow 0
 }
 
 function should
@@ -184,29 +169,19 @@ function Insert($it, $between, $and_)
 
 function Fill-Context($context, [hashtable] $extraProperties = $null)
 {
-    $result = @{}
+    $intermediateResult = switch ($null)
+            {
+                { $null -eq $context } { @{} }
+                { $context -is [string] }  { @{ Name = $context; } }
+                default { $context }
+            }
+    
+    @{ Name = [string]::Empty; Description = @(); Tags = @() }.GetEnumerator() | `
+        Where-Object { -not $intermediateResult.Contains($_.Name) } | `
+        ForEach-Object { $intermediateResult.Add($_.Name, $_.Value) }
 
-    if ($null -eq $context)
-    {
-        $result = @{ Name = ''; Description = $null; Tags = $null }
-    }
-    elseif ($context -is [string])
-    {
-        $result = @{ Name = $context; Description = $null; Tags = $null }
-    }
-    else 
-    {
-        $result = $context
-    }
-
-    foreach ($propertyName in 'Name', 'Description', 'Tags')
-    {
-        if (-not $result.Contains($propertyName))
-        {
-            $result.Add($propertyName, $null)
-        }
-    }
-
+    # Exact order of roperties in Hashtable is important for further comparison
+    $result = @{ Name = $intermediateResult.Name; Description = @($intermediateResult.Description); Tags = @($intermediateResult.Tags) }
     if ($null -ne $extraProperties)
     {
         $result += $extraProperties
@@ -294,7 +269,7 @@ function Single-ThenStep($stepText, $with)
     ThenBlock -with (ThenStep $stepText $with)
 }
 
-function Table([array] $header, [array] $rows)
+function Table([string[]] $header, [array] $rows)
 {
     $rowHashtables = @()
     if ($null -ne $rows)
@@ -311,10 +286,7 @@ function Table([array] $header, [array] $rows)
             }
     }
 
-    @{
-        Header = @($header);
-        Rows = @($rowHashtables)
-    }
+    [GherkinTable]::new(@($header), @($rowHashtables))
 }
 
 function Build-ScenarioName($scenarioOutlineName, $parameterName, $parameterValue)
@@ -608,9 +580,9 @@ Scenario: s4
                 -with (Scenario -withContext @{ Name = 's4'; Description = ,'I am the scenario description'; Tags = 'Very', 'Complex', 'IamATag', 'NotADescription' } `
                                 -with (Single-GivenStep 'I have these friends' `
                                                         -with (Table -header 'Friend Name', 'Age', 'Gender' `
-                                                                    -rows @('Sam', 45, 'Male'),
-                                                                        @('Ann', 32, 'Female'),
-                                                                        @('Tom', 18, 'Male'))),
+                                                                    -rows @('Sam', '45', 'Male'),
+                                                                        @('Ann', '32', 'Female'),
+                                                                        @('Tom', '18', 'Male'))),
                                     (Single-WhenStep 'I borrow Argument(50) dollars from' `
                                                     -with (Table -header 'Friend Name', 'Borrow date' `
                                                                     -row @('Sam','06/25/2017'),
@@ -643,11 +615,11 @@ Scenario: s5
                 -with (Scenario 's5' `
                                 -with (GivenBlock `
                                         -with (GivenStep 'I have these friends' `
-                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Sam', 45, 'Male')))),
+                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Sam', '45', 'Male')))),
                                             (GivenStep 'I have these friends' `
-                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Ann', 32, 'Female')))),
+                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Ann', '32', 'Female')))),
                                             (GivenStep 'I have these friends' `
-                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Tom', 18, 'Male'))))),
+                                                        -with (Table -header 'Friend Name', 'Age', 'Gender' -rows (,@('Tom', '18', 'Male'))))),
                                     (WhenBlock `
                                         -with (WhenStep 'I borrow Argument(50) dollars from' `
                                                         -with (Table -header 'Friend Name', 'Borrow date' -rows (,@('Sam', '06/25/2017')))),
@@ -759,8 +731,8 @@ Examples:
     | James               | Bob                  | 1001     | 2002     | 42           |
 "@) `
 -illustrating 'Tags propagation in Scenario Outline' | should result in invocation of `
-    (Feature  -withContext @{ Name = 'f11-0'; Description = $Null; Tags = @('Tag0') } -with `
-        (Scenario -withContext @{ Name = (Build-ScenarioName 'so' 'First Customer Name' 'James'); Description = $Null; Tags = @('Tag0', 'Tag1') } -with `
+    (Feature  -withContext @{ Name = 'f11-0'; Tags = @('Tag0') } -with `
+        (Scenario -withContext @{ Name = (Build-ScenarioName 'so' 'First Customer Name' 'James'); Tags = @('Tag0', 'Tag1') } -with `
             (Single-ThenStep 'I should have only Argument(Bob) left as a friend')))
 
 
@@ -844,10 +816,10 @@ Scenario: s12-2
         (Scenario 's12-2' -with `
             (GivenBlock -with `
                 (GivenStep 'Call me Argument(Sam)'),
-                (GivenStep 'Call me Argument(Neo)')),
+                (GivenStep 'Call me Argument(Neo)'),
                 (GivenStep `
                     'I have these friends' `
-                    -with (Table -header 'Friend Name','Age','Gender' -rows (,@('Sam', 45, 'Male')))),
+                    -with (Table -header 'Friend Name','Age','Gender' -rows (,@('Sam', '45', 'Male'))))),
             (Single-WhenStep `
                 'I borrow Argument(23) dollars from' `
                 -with (Table -header 'Friend Name', 'Borrow date' -rows (,@('Sam', '06/25/2017')))),
@@ -946,7 +918,7 @@ Scenario: Scenario with its own tag
 
 
 Running (Gherkin-Script @"
-Feature: 
+Feature:
 @tag-1
 Scenario: Scenario with tag-1
 	Given Call me Ishmael
@@ -1046,7 +1018,7 @@ Scenario: Test something else
 	Then everything should be alright
 "@) `
 -illustrating 'Testing feature-level @ignore tag' | should result in invocation of `
-    (Feature -withContext @{ Name = 'Testing feature-level @ignore tag'; Description = $Null; Tags = @('ignore') })
+    (Feature -withContext @{ Name = 'Testing feature-level @ignore tag'; Tags = @('ignore') })
 
 
 Running (Gherkin-Script @"
@@ -1087,7 +1059,7 @@ Then I should have only Sara left as a friend
                                         -with (GivenStep 'Call me Argument(Ishmael)'),
                                                 (GivenStep 'I have these friends' `
                                                         -with (Table -header 'Friend Name', 'Age', 'Gender' `
-                                                                        -rows (,@('Tom', 18, 'Male'))))),
+                                                                        -rows (,@('Tom', '18', 'Male'))))),
                                     (WhenBlock `
                                         -with (WhenStep 'I borrow Argument(1000) dollars from' `
                                                         -with (Table -header 'Friend Name', 'Borrow date' `
