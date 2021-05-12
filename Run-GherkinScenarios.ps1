@@ -51,7 +51,50 @@ filter Except-Nulls
 
 filter Trim-String
 {
-    switch ($_) { $Null { '' } default { $_.Trim() } }
+    switch ($_) { $Null { [string]::Empty } default { $_.Trim() } }
+}
+
+function True-ForAll([array] $items, [scriptblock] $condition)
+{
+    foreach ($item in $items)
+    {
+        [bool] $ok = & $condition $item
+        if (-not $ok)
+        {
+            return $false
+        }
+    }
+
+    $true
+}
+
+function Split-AndProject([array] $items, [scriptblock] $isSplitter, [scriptblock] $projectGroup)
+{
+    if ($null -eq $items -or $items.Length -eq 0)
+    {
+        return @()
+    }
+
+    $splittersIndexes = @(0..($items.Length - 1) | Where-Object { & $isSplitter $items[$_] })
+    if ($splittersIndexes.Length -eq 0)
+    {
+        return & $projectGroup $items # since we have no splitters, then all items belong to a single group
+    }
+
+    $splittersIndexes += $items.Length
+
+    $currentGroupStart = 0
+    @($splittersIndexes | `
+        ForEach-Object {
+            $currentGroupEnd = $_
+            if ($currentGroupStart -lt $currentGroupEnd)
+            {
+                & $projectGroup @($items[$currentGroupStart..($currentGroupEnd - 1)])
+            }
+
+            $currentGroupStart = $currentGroupEnd + 1
+        } | `
+        Where-Object { $null -ne $_ })
 }
 
 function Log-Parsing($message)
@@ -126,7 +169,7 @@ class FeatureFileContent
                 return [FeatureFileContent]::new($this.TextLines, $nextLineIndex, $offset)
             }
         }
-    
+
         return $Null
     }
 }
@@ -162,7 +205,7 @@ class MonadicParsing
                     Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
                     return $Null
                 }
-        
+
                 Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
                 return [ParsingResult]::new($parser, $content.Skip($patternLength))
             }
@@ -174,7 +217,7 @@ class MonadicParsing
                     Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
                     return $Null
                 }
-        
+
                 $parsedValue = $matchingResult.Groups[1].Value
                 Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
                 return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
@@ -189,10 +232,10 @@ class MonadicParsing
                     {
                         return $Null
                     }
-        
+
                     $content = $parsingResult.Rest
                 }
-        
+
                 return $parsingResult
             }
         }
@@ -526,26 +569,71 @@ $TableRow = Complete-Line(@(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]'))
 $DataTable = (from_ parsedTableHeader in $TableRow),
              (from_ parsedTableData in (Repeat $TableRow -allowZeroRepetition)),
              (select_ {
-                 $tableHeaderNames = @($parsedTableHeader | Trim-String)
+                function IsSeparatorRow([hashtable] $row)
+                {
+                    True-ForAll `
+                        -items $row.Values `
+                        -condition {
+                            param ($v)
+                            True-ForAll `
+                                -items ([char[]]$v) `
+                                -condition { param ($ch) '-' -eq $ch }
+                        }
+                }
 
-                 $parsedTableRows = @($parsedTableData | `
-                                    ForEach-Object {
-                                        $dataRow = @($_)
+                function IsMultilineTable([hashtable[]] $rows)
+                {
+                    1 -eq @($rows | `
+                        Where-Object { IsSeparatorRow -row $_ } | `
+                        Select-Object -First 1).Length
+                }
 
-                                        Verify-That `
-                                            -condition ($dataRow.Length -eq $tableHeaderNames.Length) `
-                                            -message "Table Header $([Environment]::NewLine)| $([String]::Join(' | ', $tableHeaderNames)) |$([Environment]::NewLine) has different number of columns compared to the data row $([Environment]::NewLine)| $([String]::Join(' | ', $dataRow)) |$([Environment]::NewLine)"
+                $tableHeaderNames = @($parsedTableHeader | Trim-String)
 
-                                        $resultingRow = @{}
-                                        for ($cellIndex = 0; $cellIndex -ne $tableHeaderNames.Length; $cellIndex++)
-                                        {
-                                            $resultingRow.Add($tableHeaderNames[$cellIndex], ($dataRow[$cellIndex] | Trim-String))
-                                        }
+                $parsedTableRows = @($parsedTableData | `
+                    ForEach-Object {
+                        $dataRow = @($_)
 
-                                        $resultingRow
-                                    })
+                        Verify-That `
+                            -condition ($dataRow.Length -eq $tableHeaderNames.Length) `
+                            -message "Table Header $([Environment]::NewLine)| $([String]::Join(' | ', $tableHeaderNames)) |$([Environment]::NewLine) has different number of columns compared to the data row $([Environment]::NewLine)| $([String]::Join(' | ', $dataRow)) |$([Environment]::NewLine)"
 
-                 [GherkinTable]::new(@($tableHeaderNames), @($parsedTableRows))
+                        $resultingRow = @{}
+                        for ($cellIndex = 0; $cellIndex -ne $tableHeaderNames.Length; $cellIndex++)
+                        {
+                            $resultingRow.Add($tableHeaderNames[$cellIndex], ($dataRow[$cellIndex] | Trim-String))
+                        }
+
+                        $resultingRow
+                    })
+
+                if (IsMultilineTable -rows $parsedTableRows)
+                {
+                    $mulilineRows = Split-AndProject `
+                        -items $parsedTableRows `
+                        -isSplitter { param($row) IsSeparatorRow -row $row } `
+                        -projectGroup {
+                            param([hashtable[]] $rowGroup)
+
+                            $resultingRow = @{}
+                            foreach ($columnName in $tableHeaderNames)
+                            {
+                                $cellValue = ($rowGroup | `
+                                                ForEach-Object { $_[$columnName] } | `
+                                                Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) `
+                                                    -join [Environment]::NewLine
+                                $resultingRow.Add($columnName, $cellValue)
+                            }
+
+                            $resultingRow
+                        }
+
+                    [GherkinTable]::new($tableHeaderNames, $mulilineRows)
+                }
+                else
+                {
+                    [GherkinTable]::new($tableHeaderNames, $parsedTableRows)
+                }
              })
 
 $DocStringSeparator = [regex]'\s*(""")\s*$'
@@ -713,7 +801,7 @@ function Bind-ToStepExecuter([StepType] $stepType, [string] $stepText, $extraArg
 {
     function Get-ScriptBlockParameterTypes([scriptblock] $scriptBlock)
     {
-        try 
+        try
         {
             $scriptBlock.Ast.ParamBlock.Parameters | ForEach-Object { $_.StaticType }
         }
@@ -724,7 +812,7 @@ function Bind-ToStepExecuter([StepType] $stepType, [string] $stepText, $extraArg
     }
 
     $match = [Known]::StepDefinitions.Match($stepType, $stepText)
-    @{ 
+    @{
         StepPattern = $match.StepBinding.Pattern; 
         StepScript = $match.StepBinding.Script;
         StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($match.StepArguments) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $match.StepBinding.Script)) 

@@ -20,7 +20,7 @@ function Save-ContentToTemporaryFile($scriptContent)
 {
     $temporaryFilePath = [System.IO.Path]::GetTempFileName()
     $scriptContent | Out-File $temporaryFilePath
-    return $temporaryFilePath 
+    return $temporaryFilePath
 }
 
 function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectFailures, [switch] $failFast)
@@ -46,7 +46,7 @@ function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectF
         if (-Not [string]::IsNullOrEmpty($logToFolder) -and ($Null -ne (Get-Command ConvertTo-Json -ErrorAction  SilentlyContinue)))
         {
             $featureExecutionResults | `
-				ForEach-Object { $_.Feature | ConvertTo-Json -Depth 10 } | Out-File -FilePath (Join-Path $logToFolder 'ParsedFeature.json')
+				ForEach-Object { $_.Feature | ConvertTo-Json -Depth 20 } | Out-File -FilePath (Join-Path $logToFolder 'ParsedFeature.json')
         }
 
 		if ($featureExecutionResults.Length -gt 0)
@@ -78,7 +78,7 @@ function Gherkin-Script($scriptContent)
 
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
-    function Get-JsonLines($value) { ($value | ConvertTo-Json -Depth 10) -split [Environment]::NewLine }
+    function Get-JsonLines($value) { ($value | ConvertTo-Json -Depth 20) -split [Environment]::NewLine }
 
     $referenceLines = Get-JsonLines $referenceObject
     $differenceLines = Get-JsonLines $differenceObject
@@ -175,7 +175,7 @@ function Fill-Context($context, [hashtable] $extraProperties = $null)
                 { $context -is [string] }  { @{ Name = $context; } }
                 default { $context }
             }
-    
+
     @{ Name = [string]::Empty; Description = @(); Tags = @() }.GetEnumerator() | `
         Where-Object { -not $intermediateResult.Contains($_.Name) } | `
         ForEach-Object { $intermediateResult.Add($_.Name, $_.Value) }
@@ -214,7 +214,7 @@ function Example($withContext, $from, $with)
 function Rule($withContext)
 {
     $result = @{}
-    (Fill-Context $withContext).GetEnumerator() | Where-Object { $_.Name -ne 'Tags' } | ForEach-Object { $result.Add("Rule$($_.Name)", $_.Value) } 
+    (Fill-Context $withContext).GetEnumerator() | Where-Object { $_.Name -ne 'Tags' } | ForEach-Object { $result.Add("Rule$($_.Name)", $_.Value) }
     $result
 }
 
@@ -294,17 +294,17 @@ function Build-ScenarioName($scenarioOutlineName, $parameterName, $parameterValu
     "$scenarioOutlineName ($parameterName`: $parameterValue)"
 }
 
-class Pair 
-{ 
-    [int] $First; 
-    [int] $Second; 
+class Pair
+{
+    [int] $First;
+    [int] $Second;
 
-    Pair([int] $f, [int] $s) 
-    { 
-        $this.First = $f; 
-        $this.Second = $s 
-    } 
-} 
+    Pair([int] $f, [int] $s)
+    {
+        $this.First = $f;
+        $this.Second = $s
+    }
+}
 
 Clean-GherkinRunningInfrastructure
 
@@ -446,7 +446,6 @@ Given ([regex] 'custom type converters defined in class (.*)') {
     Register-CustomTypeConverter ([System.Management.Automation.PSTypeName]$className).Type
 }
 
-
 Running (Gherkin-Script '') -illustrating 'Empty *.feature' | should result in invocation of @()
 
 
@@ -539,8 +538,22 @@ Scenario: s4
 
 
 Running (Gherkin-Script @"
-Feature: f4
-Scenario: s4
+Feature: f4.0
+Scenario: s4.0
+    Given I have these friends
+    | First Column | 2nd Column | Yet Another Column |
+"@) `
+-illustrating 'Step with an empty table parameter' | should result in invocation of `
+    (Feature 'f4.0' `
+        -with (Scenario 's4.0' `
+            -with (Single-GivenStep 'I have these friends' `
+                -with (Table -header 'First Column', '2nd Column', 'Yet Another Column' `
+                             -rows   @() ))))
+
+
+Running (Gherkin-Script @"
+Feature: f4.1
+Scenario: s4.1
     Given I have these friends
     | Friend Name |
     | Sam         |
@@ -548,13 +561,40 @@ Scenario: s4
     | John        |
 "@) `
 -illustrating 'Step with the single-column table parameter' | should result in invocation of `
-    (Feature 'f4' `
-        -with (Scenario 's4' `
+    (Feature 'f4.1' `
+        -with (Scenario 's4.1' `
             -with (Single-GivenStep 'I have these friends' `
                 -with (Table -header @('Friend Name') `
                                 -rows   @('Sam'),
                                         @('Mary'),
                                         @('John') ))))
+
+
+Running (Gherkin-Script @"
+Feature: f4.2
+Scenario: s4.2
+    Given I have these friends
+    | Friend Name | Favorite Verse                                      |
+    |-------------|-----------------------------------------------------|
+    | Sam         | To be or not to be -                                |
+    |             | That is the question!                               |
+    |-------------|-----------------------------------------------------|
+    | Mary        | When Israel was in Egypt land                       |
+    |             | Let my people go!                                   |
+    |             | Oppressed so hard they could not stand              |
+    |             | Let my people go!                                   |
+    |-------------|-----------------------------------------------------|
+    | John        | There is a house in New Orleans...                  |
+    |-------------|-----------------------------------------------------|
+"@) `
+-illustrating 'Step with the mulitline rows table' | should result in invocation of `
+    (Feature 'f4.2' `
+        -with (Scenario 's4.2' `
+            -with (Single-GivenStep 'I have these friends' `
+                -with (Table -header 'Friend Name', 'Favorite Verse' `
+                                -rows   @('Sam', "To be or not to be -$([Environment]::NewLine)That is the question!"),
+                                        @('Mary', "When Israel was in Egypt land$([Environment]::NewLine)Let my people go!$([Environment]::NewLine)Oppressed so hard they could not stand$([Environment]::NewLine)Let my people go!"),
+                                        @('John', 'There is a house in New Orleans...') ))))
 
 
 Running (Gherkin-Script @"
@@ -783,14 +823,14 @@ Examples:
      | Number-1 | Number-2 | SumOfNumbers | Second Customer Name |
      | 1001     | 2002     | 42           | Mike                 |
      | 33       | 123      | 1923         | Peter                |
-     | 666      | 1000     | 1000000      | John                 |  
+     | 666      | 1000     | 1000000      | John                 |
 Scenario: s12-2
 	Given I have these friends
         | Friend Name | Age | Gender |
         | Sam         | 45  | Male   |
-	When I borrow 23 dollars from 
-        | Friend Name | Borrow date | 
-        | Sam         | 06/25/2017  | 
+	When I borrow 23 dollars from
+        | Friend Name | Borrow date |
+        | Sam         | 06/25/2017  |
     Then I should have only Jane left as a friend
 "@) `
 -illustrating 'Scenario Outline with Background' | should result in invocation of `
@@ -833,9 +873,9 @@ Scenario Outline: s13
         | Friend Name | Age | Gender |
         | Sam         | 45  | Male   |
         | Tom         | 18  | Male   |
-    When I borrow <Amount> dollars from 
-        | Friend Name | Borrow date | 
-        | Tom         | 08/13/2016  | 
+    When I borrow <Amount> dollars from
+        | Friend Name | Borrow date |
+        | Tom         | 08/13/2016  |
     Then I should have only Sam left as a friend
 Examples:
      | Amount  |
@@ -871,9 +911,9 @@ Scenario Outline: s14
         | Friend Name | Age | Gender |
         | Sam         | 45  | Male   |
         | Tom         | 18  | Male   |
-    When I borrow <Amount> dollars from 
-        | Friend Name | Borrow date | 
-        | <Friend>         | 08/13/2016  | 
+    When I borrow <Amount> dollars from
+        | Friend Name | Borrow date |
+        | <Friend>         | 08/13/2016  |
     Then I should have only <Friend that is left> left as a friend
 Examples:
      | Amount | Friend | Friend that is left |
@@ -1042,10 +1082,10 @@ Scenario: Commenting steps and tables
 #   | Sam         | 45  | Male   |
    | Tom         | 18  | Male   |
    # When 10 plus 20 gives 30
-   When I borrow 1000 dollars from 
-   | Friend Name | Borrow date | 
-   | Tom         | 08/13/2016  | 
-#   | Sam         | 08/14/2017  | 
+   When I borrow 1000 dollars from
+   | Friend Name | Borrow date |
+   | Tom         | 08/13/2016  |
+#   | Sam         | 08/14/2017  |
 Then I should have only Sara left as a friend
 # And everything should be alright
 
@@ -1210,7 +1250,7 @@ Running (Gherkin-Script @"
 Feature: r-005
 Rule: Always Be Closing
     that's a quote from the 'Glengarry Glen Ross' movie
-Background: 
+Background:
     Given Call me Ishmael
 Example: r-005, e-01
     Then everything should be alright
