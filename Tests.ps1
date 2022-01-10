@@ -373,7 +373,7 @@ Given ([regex]'Call me (.*)') {
 }
 
 Given ([regex]'I have these friends') {
-    param ($friendsTable)
+    param ([GherkinTable] $friendsTable)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -given "I have these friends" -tableArgument $friendsTable)) })
 }
 
@@ -383,7 +383,7 @@ When ([regex]'(\d+) plus (\d+) gives (\d+)') {
 }
 
 When ([regex]'I borrow (\d+) dollars from') {
-    param ($borrowedAmount, $borrowedFromPersonsTable)
+    param ($borrowedAmount, [GherkinTable] $borrowedFromPersonsTable)
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Step -when "I borrow Argument($borrowedAmount) dollars from" -tableArgument $borrowedFromPersonsTable)) })
 }
 
@@ -440,7 +440,7 @@ Then ([regex] 'its numerical value should be equal to (.*)') {
 }
 
 Given ([regex] 'custom type converters defined in class (.*)') {
-    param ($className, $table)
+    param ($className, [GherkinTable] $table)
     $methodDefinitions = @($table.Rows | ForEach-Object { "static $($_.'Converting method definition')" }) -join [Environment]::NewLine
     Invoke-Expression "class $className { $([Environment]::NewLine) $methodDefinitions $([Environment]::NewLine) }"
     Register-CustomTypeConverter ([System.Management.Automation.PSTypeName]$className).Type

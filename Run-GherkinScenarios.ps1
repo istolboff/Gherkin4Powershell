@@ -7,7 +7,8 @@
     [string] $logTestRunningToFile = $Null,
 	[switch] $failFast,
     [switch] $doNotCleanupGherkinRunningInfrastructure,
-    [switch] $showCurrentStepInConsoleTitle)
+    [switch] $showCurrentStepInConsoleTitle,
+    [switch] $formatResultsToTable)
 
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
 
@@ -183,7 +184,7 @@ class ParsingResult
     ParsingResult([object] $value, [FeatureFileContent] $rest)
     {
         $this.Value = $value
-        $this.Rest = $rest 
+        $this.Rest = $rest
     }
 }
 
@@ -195,7 +196,7 @@ class MonadicParsing
         switch ($null)
         {
             { $parser -is [scriptblock] } {
-                return & $parser $content 
+                return & $parser $content
             }
             { $parser -is [string] } {
                 $patternLength = $parser.Length
@@ -223,7 +224,7 @@ class MonadicParsing
                 return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
             }
             { $parser -is [array] } {
-                Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers' 
+                Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
                 [ParsingResult] $parsingResult = $null
                 foreach ($nextParser in $parser)
                 {
@@ -504,7 +505,7 @@ function Build-GherkinKeywordParsers($cultureName)
         'pl' = @{ And = "*","Oraz","I"; Background = "Założenia"; But = "*","Ale"; Examples = "Przykłady"; Feature = "Właściwość","Funkcja","Aspekt","Potrzeba biznesowa"; Given = "*","Zakładając","Mając","Zakładając, że"; Name = "Polish"; Native = "polski"; Rule = "Rule"; Scenario = "Przykład","Scenariusz"; ScenarioOutline = "Szablon scenariusza"; Then = "*","Wtedy"; When = "*","Jeżeli","Jeśli","Gdy","Kiedy" };
         'pt' = @{ And = "*","E"; Background = "Contexto","Cenário de Fundo","Cenario de Fundo","Fundo"; But = "*","Mas"; Examples = "Exemplos","Cenários","Cenarios"; Feature = "Funcionalidade","Característica","Caracteristica"; Given = "*","Dado","Dada","Dados","Dadas"; Name = "Portuguese"; Native = "português"; Rule = "Regra"; Scenario = "Exemplo","Cenário","Cenario"; ScenarioOutline = "Esquema do Cenário","Esquema do Cenario","Delineação do Cenário","Delineacao do Cenario"; Then = "*","Então","Entao"; When = "*","Quando" };
         'ro' = @{ And = "*","Si","Și","Şi"; Background = "Context"; But = "*","Dar"; Examples = "Exemple"; Feature = "Functionalitate","Funcționalitate","Funcţionalitate"; Given = "*","Date fiind","Dat fiind","Dată fiind","Dati fiind","Dați fiind","Daţi fiind"; Name = "Romanian"; Native = "română"; Rule = "Rule"; Scenario = "Exemplu","Scenariu"; ScenarioOutline = "Structura scenariu","Structură scenariu"; Then = "*","Atunci"; When = "*","Cand","Când" };
-        'ru' = @{ And = "*","И","К тому же","Также"; Background = "Предыстория","Контекст"; But = "*","Но","А","Иначе"; Examples = "Примеры"; Feature = "Функция","Функциональность","Функционал","Свойство"; Given = "*","Допустим","Дано","Пусть"; Name = "Russian"; Native = "русский"; Rule = "Rule"; Scenario = "Пример","Сценарий"; ScenarioOutline = "Структура сценария"; Then = "*","То","Затем","Тогда"; When = "*","Когда","Если" };
+        'ru' = @{ And = "*","И","К тому же","Также"; Background = "Предыстория","Контекст"; But = "*","Но","А","Иначе"; Examples = "Примеры"; Feature = "Функция","Функциональность","Функционал","Свойство"; Given = "*","Допустим","Дано","Пусть"; Name = "Russian"; Native = "русский"; Rule = "Правило"; Scenario = "Пример","Сценарий"; ScenarioOutline = "Структура сценария"; Then = "*","То","Затем","Тогда"; When = "*","Когда","Если" };
         'sk' = @{ And = "*","A","A tiež","A taktiež","A zároveň"; Background = "Pozadie"; But = "*","Ale"; Examples = "Príklady"; Feature = "Požiadavka","Funkcia","Vlastnosť"; Given = "*","Pokiaľ","Za predpokladu"; Name = "Slovak"; Native = "Slovensky"; Rule = "Rule"; Scenario = "Príklad","Scenár"; ScenarioOutline = "Náčrt Scenáru","Náčrt Scenára","Osnova Scenára"; Then = "*","Tak","Potom"; When = "*","Keď","Ak" };
         'sl' = @{ And = "In","Ter"; Background = "Kontekst","Osnova","Ozadje"; But = "Toda","Ampak","Vendar"; Examples = "Primeri","Scenariji"; Feature = "Funkcionalnost","Funkcija","Možnosti","Moznosti","Lastnost","Značilnost"; Given = "Dano","Podano","Zaradi","Privzeto"; Name = "Slovenian"; Native = "Slovenski"; Rule = "Rule"; Scenario = "Primer","Scenarij"; ScenarioOutline = "Struktura scenarija","Skica","Koncept","Oris scenarija","Osnutek"; Then = "Nato","Potem","Takrat"; When = "Ko","Ce","Če","Kadar" };
         'sr-Cyrl' = @{ And = "*","И"; Background = "Контекст","Основа","Позадина"; But = "*","Али"; Examples = "Примери","Сценарији"; Feature = "Функционалност","Могућност","Особина"; Given = "*","За дато","За дате","За дати"; Name = "Serbian"; Native = "Српски"; Rule = "Rule"; Scenario = "Пример","Сценарио","Пример"; ScenarioOutline = "Структура сценарија","Скица","Концепт"; Then = "*","Онда"; When = "*","Када","Кад" };
@@ -805,7 +806,7 @@ function Bind-ToStepExecuter([StepType] $stepType, [string] $stepText, $extraArg
         {
             $scriptBlock.Ast.ParamBlock.Parameters | ForEach-Object { $_.StaticType }
         }
-        catch [System.Management.Automation.PropertyNotFoundException] 
+        catch [System.Management.Automation.PropertyNotFoundException]
         {
             @()
         }
@@ -813,9 +814,9 @@ function Bind-ToStepExecuter([StepType] $stepType, [string] $stepText, $extraArg
 
     $match = [Known]::StepDefinitions.Match($stepType, $stepText)
     @{
-        StepPattern = $match.StepBinding.Pattern; 
+        StepPattern = $match.StepBinding.Pattern;
         StepScript = $match.StepBinding.Script;
-        StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($match.StepArguments) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $match.StepBinding.Script)) 
+        StepArguments = [Known]::CustomTypeConverters.ApplyToAll(@($match.StepArguments) + @($extraArgument | Except-Nulls), @(Get-ScriptBlockParameterTypes $match.StepBinding.Script))
     }
 }
 
@@ -965,7 +966,7 @@ filter Apply-Rules
                     $true { $example.ScenarioTemplate } # scenario outline
                     default { $example } # plain scenario/example
                 }
-    
+
                 'RuleTitle', 'RuleDescription' | ForEach-Object { $scenario.Add($_, $ruleHeader[$_]) }
                 $scenario.ScenarioBlocks = @(Join-ScenarioBlocks -backgroundBlocks $ruleHeader.RuleBackground.StepBlocks -scenarioBlocks $scenario.ScenarioBlocks)
             }
@@ -1011,22 +1012,21 @@ filter Expand-ScenarioOutline
                                             }
                                             else
                                             {
-                                                $extraArgument = @{
-                                                    Header = @($extraArgument.Header | ForEach-Object { $_.Replace("<$columnName>", $exampleColumnValue) });
-                                                    Rows = @($extraArgument.Rows | `
-                                                                ForEach-Object {
-                                                                    $originalRow = $_
-                                                                    $modifiedRow = @{}
-                                                                    $originalRow.GetEnumerator() | `
-                                                                        ForEach-Object {
-                                                                            $originalKey = $_.Key
-                                                                            $originalValue = $_.Value
-                                                                            $modifiedRow.Add($originalKey.Replace("<$columnName>", $exampleColumnValue), $originalValue.Replace("<$columnName>", $exampleColumnValue)) 
-                                                                        }
+                                                $adjustedHeader = @($extraArgument.Header | ForEach-Object { $_.Replace("<$columnName>", $exampleColumnValue) })
+                                                $adjustedRows = @($extraArgument.Rows | `
+                                                            ForEach-Object {
+                                                                $originalRow = $_
+                                                                $modifiedRow = @{}
+                                                                $originalRow.GetEnumerator() | `
+                                                                    ForEach-Object {
+                                                                        $originalKey = $_.Key
+                                                                        $originalValue = $_.Value
+                                                                        $modifiedRow.Add($originalKey.Replace("<$columnName>", $exampleColumnValue), $originalValue.Replace("<$columnName>", $exampleColumnValue)) 
+                                                                    }
 
-                                                                    $modifiedRow
-                                                                })
-                                                }
+                                                                $modifiedRow
+                                                            })
+                                                $extraArgument = [GherkinTable]::new($adjustedHeader, $adjustedRows)
                                             }
                                         }
                                     }
@@ -1121,4 +1121,23 @@ if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $Null 
     Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
 }
 
-return $featureExecutionResults
+if ($formatResultsToTable)
+{
+    $featureExecutionResults | `
+        ForEach-Object {
+            $it = $_
+            $it.ScenarioExecutionResults | `
+                Foreach-Object { $_ + @{ Feature = $it.Feature.Title } }
+        } | `
+        ForEach-Object {
+            [PSCustomObject]$_
+        } | `
+        Format-Table `
+            -GroupBy Feature `
+            -Property Scenario, ScenarioOutcome, Duration `
+            -AutoSize
+}
+else
+{
+    $featureExecutionResults
+}

@@ -87,7 +87,6 @@ enum ScenarioOutcome
 }
 #endregion
 
-#region Table
 class GherkinTable
 {
     [string[]] $Header
@@ -100,10 +99,8 @@ class GherkinTable
         $this.Rows = $r
     }
 }
-#endregion
 
-#region [TestRun|Feature|Scenario]Context
-class GherkinContextBase 
+class GherkinContextBase
 {
     [System.Collections.Generic.IDictionary[string, object]] hidden $_values = [System.Collections.Generic.Dictionary[string, object]]::new()
 
@@ -140,7 +137,6 @@ class ScenarioContext : GherkinContextBase
 
     static [ScenarioContext] $Current
 }
-#endregion
 
 #region Step Definitions & Hooks
 class ExecutionHook
@@ -276,7 +272,7 @@ class CustomTypeConverters
         $targetType = $method.ReturnType
         Verify-That `
             -condition (-not $this._registeredConverters.ContainsKey($targetType)) `
-            -message { 
+            -message {
                 $duplicateConverter = $this._registeredConverters[$targetType]
                 "Both method $($method.DeclaringType.Name).$($method.Name) and method $($duplicateConverter.DeclaringType.Name).$($duplicateConverter.Name) define custom conversion to the type $($targetType.FullName)" 
             }
@@ -378,7 +374,7 @@ function Register-CustomTypeConverter([Type] $typeWithConverterMethods)
     $typeWithConverterMethods.GetMethods([System.Reflection.BindingFlags]::Static + [System.Reflection.BindingFlags]::Public) | `
         ForEach-Object {
             [Known]::CustomTypeConverters.RegisterConverter($_)
-        } 
+        }
 }
 #endregion
 
