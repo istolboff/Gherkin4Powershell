@@ -78,7 +78,115 @@ function Gherkin-Script($scriptContent)
 
 function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
 {
-    function Get-JsonLines($value) { ($value | ConvertTo-Json -Depth 20) -split [Environment]::NewLine }
+    function Shift([string] $text = [string]::Empty, [int] $nestingLevel)
+    {
+        [string]::new(' ', $nestingLevel * 2) + $text
+    }
+
+    function ConvertTo-JsonWithOrderedProperties(
+        $inputObject,
+        [System.Collections.Generic.List[string]] $lines,
+        [int] $nestingLevel)
+    {
+        function Dump-Array([array] $values, [string[]] $brackets)
+        {
+            if ($values.Length -eq 0)
+            {
+                $lines[-1] += "$($brackets[0])$($brackets[1])"
+            }
+            else
+            {
+                $lines[-1] += $brackets[0]
+                for ($i = 0; $i -lt $values.Length; ++$i)
+                {
+                    $lines.Add((Shift -nestingLevel ($nestingLevel + 1)))
+                    ConvertTo-JsonWithOrderedProperties `
+                        -inputObject $values[$i] `
+                        -lines $lines `
+                        -nestingLevel ($nestingLevel + 1)
+                    if (($i + 1) -lt $values.Length)
+                    {
+                        $lines[-1] += ','
+                    }
+                }
+
+                $lines.Add((Shift -text $brackets[1] -nestingLevel $nestingLevel))
+            }
+        }
+
+        if ($null -eq $inputObject)
+        {
+            $lines[-1] += 'null'
+        }
+        elseif ($inputObject -is [string])
+        {
+            $lines[-1] += "`"$($inputObject.Replace([Environment]::NewLine, '\r\n'))`""
+        }
+        elseif ($inputObject -is [array])
+        {
+            Dump-Array -values $inputObject -brackets '[',']'
+        }
+        elseif ($inputObject -is [hashtable])
+        {
+            Dump-Array -values @($inputObject.GetEnumerator() | Sort-Object -Property 'Name') -brackets '{','}'
+        }
+        elseif ($inputObject -is [GherkinTable])
+        {
+            ConvertTo-JsonWithOrderedProperties `
+                    -inputObject @{ Header = $inputObject.Header; Rows = $inputObject.Rows } `
+                    -lines $lines `
+                    -nestingLevel $nestingLevel
+        }
+        elseif ($inputObject -is [System.Collections.DictionaryEntry])
+        {
+            $lines[-1] += "`"$($inputObject.Name)`": "
+            ConvertTo-JsonWithOrderedProperties `
+                -inputObject $inputObject.Value `
+                -lines $lines `
+                -nestingLevel $nestingLevel
+        }
+        elseif ($inputObject.GetType().IsEnum)
+        {
+            $lines[-1] += ([int]$inputObject).ToString()
+        }
+        else
+        {
+            throw "Do not know how to handle $($inputObject.GetType().Name)"
+        }
+    }
+
+    function Get-JsonLines($value)
+    {
+        $lines = [System.Collections.Generic.List[string]]::new()
+        $lines.Add([string]::Empty)
+        ConvertTo-JsonWithOrderedProperties -inputObject $value -lines $lines -nestingLevel 0
+<#
+    Commented code ensures that our Json representation has exactly the same set of strings as the
+    standard Json represenation, but probably in a different order.
+
+        $trueJson = ($value | ConvertTo-Json -Depth 20) -split [Environment]::NewLine
+        $test = Compare-Object `
+            -ReferenceObject @($trueJson | ForEach-Object { $_.TrimEnd(',') }) `
+            -DifferenceObject @($lines | ForEach-Object { $_.TrimEnd(',') })
+
+        if ($null -ne $test)
+        {
+            if ($trueJson -is [string[]] -and $trueJson.Length -eq 0 -and $lines.Count -eq 1 -and $lines[0] -eq '[]')
+            {
+                return $lines
+            }
+
+            if (-Not [string]::IsNullOrEmpty($logToFolder))
+            {
+                $trueJson | Out-File -FilePath (Join-Path $logToFolder 'ExpectedInvocationHistory.json')
+                $lines | Out-File -FilePath (Join-Path $logToFolder 'ActualInvocationHistory.json')
+            }
+
+            throw ($test | Format-Table | Out-String)
+        }
+#>
+        return $lines
+    }
 
     $referenceLines = Get-JsonLines $referenceObject
     $differenceLines = Get-JsonLines $differenceObject
@@ -176,11 +284,15 @@ function Fill-Context($context, [hashtable] $extraProperties = $null)
                 default { $context }
             }
 
-    @{ Name = [string]::Empty; Description = @(); Tags = @() }.GetEnumerator() | `
+    @{
+        Name = [string]::Empty;
+        Description = @();
+        Tags = @()
+    }.GetEnumerator() | `
         Where-Object { -not $intermediateResult.Contains($_.Name) } | `
         ForEach-Object { $intermediateResult.Add($_.Name, $_.Value) }
 
-    # Exact order of roperties in Hashtable is important for further comparison
+    # Exact order of properties in Hashtable is important for further comparison
     $result = @{ Name = $intermediateResult.Name; Description = @($intermediateResult.Description); Tags = @($intermediateResult.Tags) }
     if ($null -ne $extraProperties)
     {
@@ -1159,7 +1271,6 @@ Running (Gherkin-Script @"
                 -with `
                     (Single-GivenStep 'Call me Argument(Ishmael)'),
                     (Single-ThenStep 'I should have only Argument(John) left as a friend')))
-
 
 Running (Gherkin-Script @"
 Feature: m-1
