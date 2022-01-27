@@ -786,7 +786,11 @@ function Invoke-GherkinHooks([HookType] $hookType)
 
     foreach ($hookData in ([Known]::GherkinHooks.ForType($hookType) | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
     {
-        & $hookData.Script
+        $outcome = (& $hookData.Script)
+        if ($null -ne $outcome)
+        {
+            throw "Running $hookType hook { $($hookData.Script) } produced '$outcome' while it should have been void."
+        }
     }
 
     switch ($hookType)
@@ -835,7 +839,12 @@ function Run-ScenarioStep($stepType)
 
         $stepStopwatch = [system.diagnostics.stopwatch]::StartNew()
         Invoke-GherkinHooks -hookType ([HookType]::SetupScenarioStep)
-        Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments
+        $outcome = (Invoke-Command -ScriptBlock $stepBinding.StepScript -ArgumentList $stepBinding.StepArguments)
+        if ($null -ne $outcome)
+        {
+            throw "Running '$stepText' produced '$outcome' while it should have been void."
+        }
+
         Invoke-GherkinHooks -hookType ([HookType]::TeardownScenarioStep)
         Log-TestRunning "Finished executing step '$($stepBinding.StepPattern)' (took $([int]$stepStopwatch.Elapsed.TotalSeconds) seconds)."
     }
@@ -935,20 +944,25 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
         $currentScenario = $_
         $stopwatch =  [system.diagnostics.stopwatch]::StartNew()
 
-        if ($failFast)
+        try
         {
             return Run-SingleScenarioCore -scenario $currentScenario -stopwatch $stopwatch
         }
-        else
+        catch
         {
-            try
+            if (-not $failFast)
             {
-                return Run-SingleScenarioCore -scenario $currentScenario -stopwatch $stopwatch
+                return Build-ScenarioExecutionResults `
+                            -scenario $currentScenario `
+                            -scenarioOutcome ([ScenarioOutcome]::Failed) `
+                            -exceptionInfo $PSItem.Exception `
+                            -duration $stopwatch.Elapsed
             }
-            catch
-            {
-                return Build-ScenarioExecutionResults -scenario $currentScenario -scenarioOutcome ([ScenarioOutcome]::Failed) -exceptionInfo $PSItem.Exception -duration $stopwatch.Elapsed
-            }
+
+            Invoke-GherkinHooks -hookType ([HookType]::TeardownFeature)
+            Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
+
+            throw
         }
     }
 }
@@ -1088,6 +1102,8 @@ if (-Not $doNotCleanupGherkinRunningInfrastructure)
 
 Register-AvailableTestParamers $args
 
+[TestRunContext]::Current = [TestRunContext]::new()
+
 if (-not [string]::IsNullOrEmpty($stepDefinitions))
 {
 	List-Files $stepDefinitions | Where-Object { $_.EndsWith('.ps1') } | ForEach-Object { . $_ }
@@ -1109,8 +1125,6 @@ $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
 
         @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
     })
-
-[TestRunContext]::Current = [TestRunContext]::new()
 
 $featureExecutionResults = @()
 

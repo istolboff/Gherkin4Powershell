@@ -113,6 +113,8 @@ class GherkinContextBase
     [void] UpdateValue([string] $name, [object] $value) { $this._values[$name] = $value }
 
     [void] ModifyValue([string] $name, [ScriptBlock] $modifyValue) { & $modifyValue $this.GetValue($name) }
+
+    [void] RemoveValue([string] $name) { $this._values.Remove($name); }
 }
 
 class TestRunContext : GherkinContextBase
@@ -495,7 +497,13 @@ function Assert-That($condition, $message, [switch] $fatal, [switch] $passThroug
 
     if (-not $condition)
     {
+        if ($null -eq [ScenarioContext]::Current)
+        {
+            throw $message
+        }
+
         Add-FailedAssertionInfo $message
+
         if ($fatal)
         {
             throw (Get-AllFailedAssertionsInfo)
