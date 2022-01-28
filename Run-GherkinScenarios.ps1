@@ -8,7 +8,8 @@
 	[switch] $failFast,
     [switch] $doNotCleanupGherkinRunningInfrastructure,
     [switch] $showCurrentStepInConsoleTitle,
-    [switch] $formatResultsToTable)
+    [switch] $formatResultsToTable,
+    [switch] $whatIf)
 
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
 
@@ -1090,7 +1091,10 @@ function Clear-LogFile($filePath)
     }
 }
 
-Validate -parameters @( {$scenarios} )
+if (-not $whatIf)
+{
+    Validate -parameters @( {$scenarios} )
+}
 
 Clear-LogFile -filePath $logParsingToFile
 Clear-LogFile -filePath $logTestRunningToFile
@@ -1104,54 +1108,121 @@ Register-AvailableTestParamers $args
 
 [TestRunContext]::Current = [TestRunContext]::new()
 
+[TestRunContext]::Current.SetValue('WhatIfMode:', $whatIf)
+if ($whatIf)
+{
+    [TestRunContext]::Current.SetValue('WhatIfMode:Parameters', [System.Collections.Generic.List[hashtable]]::new())
+}
+
 if (-not [string]::IsNullOrEmpty($stepDefinitions))
 {
-	List-Files $stepDefinitions | Where-Object { $_.EndsWith('.ps1') } | ForEach-Object { . $_ }
+	List-Files $stepDefinitions | `
+        Where-Object { $_.EndsWith('.ps1') } | `
+        ForEach-Object {
+            $stepDefinitionFilePath = $_
+            Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value $stepDefinitionFilePath
+            . $stepDefinitionFilePath
+        }
 }
+
+Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value 'standard definitions'
 
 Given-When ([regex] 'Halt\:(.*)') {
     param ($message)
     [void](Read-Host "$message$([Environment]::NewLine)Press Enter to continue...")
 }
 
-$parsedScenarios = @(List-Files $scenarios | ForEach-Object {
-        $scriptFilePath = $_
-        $scriptFileContent = [FeatureFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
-        $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
-        if ($null -eq $parsingResult)
-        {
-            throw "Failed to parse $scriptFilePath feature file"
-        }
-
-        @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
-    })
-
-$featureExecutionResults = @()
-
-if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $Null -ne $parsedScenarios[0].Feature))
+if ($whatIf)
 {
-    Invoke-GherkinHooks -hookType ([HookType]::SetupTestRun)
-    $featureExecutionResults = @($parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature })
-    Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
-}
+    $registeredParameters = [TestRunContext]::Current.GetValue('WhatIfMode:Parameters')
+    $registeredStepDefinitions = [Known]::StepDefinitions._registeredDefinitions.GetEnumerator() | `
+                                    ForEach-Object {
+                                        $stepType = $_.Key
+                                        $_.Value | ForEach-Object { @{ DefinedIn = $_.DefinedIn; StepType = $stepType; Pattern = $_.Pattern } }
+                                    }
+    $registeredHooks = [Known]::GherkinHooks._registeredHooks.GetEnumerator() | `
+                                    ForEach-Object {
+                                        $hookType = $_.Key
+                                        $_.Value | ForEach-Object { @{ DefinedIn = $_.DefinedIn; HookType = $hookType; Tags = ($_.Tags -join ',') } }
+                                    }
 
-if ($formatResultsToTable)
-{
-    $featureExecutionResults | `
-        ForEach-Object {
-            $it = $_
-            $it.ScenarioExecutionResults | `
-                Foreach-Object { $_ + @{ Feature = $it.Feature.Title } }
-        } | `
-        ForEach-Object {
-            [PSCustomObject]$_
-        } | `
-        Format-Table `
-            -GroupBy Feature `
-            -Property Scenario, ScenarioOutcome, Duration `
-            -AutoSize
+    if ($formatResultsToTable)
+    {
+        Write-Host "$([Environment]::NewLine)Parameters:$([Environment]::NewLine)=========="
+        $registeredParameters | `
+            Sort-Object -Property DefinedIn, Name | `
+            ForEach-Object {
+                [PSCustomObject]$_
+            } | `
+            Format-Table `
+                    -GroupBy DefinedIn `
+                    -Property Name, IsOptional, DefaultValue `
+                    -AutoSize
+
+        Write-Host "$([Environment]::NewLine)Step Definitions:$([Environment]::NewLine)================="
+        $registeredStepDefinitions | `
+            ForEach-Object { [PSCustomObject]$_ } | `
+            Sort-Object -Property DefinedIn, StepType | `
+            Format-Table `
+                -GroupBy DefinedIn `
+                -Property StepType, Pattern `
+                -AutoSize
+
+        Write-Host "$([Environment]::NewLine)Hooks:$([Environment]::NewLine)======"
+        $registeredHooks | `
+            ForEach-Object { [PSCustomObject]$_ } | `
+            Sort-Object -Property DefinedIn, HookType | `
+            Format-Table `
+                -GroupBy DefinedIn `
+                -Property HookType, Tags `
+                -AutoSize
+    }
+    else
+    {
+        @{ Parameters = @($registeredParameters); StepDefinitions = @($registeredStepDefinitions) }
+    }
 }
 else
 {
-    $featureExecutionResults
+    $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
+            $scriptFilePath = $_
+            $scriptFileContent = [FeatureFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
+            $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
+            if ($null -eq $parsingResult)
+            {
+                throw "Failed to parse $scriptFilePath feature file"
+            }
+
+            @{ ScenarioFilePath = $scriptFilePath; Feature = $parsingResult.Value }
+        })
+
+    $featureExecutionResults = @()
+
+    if ($parsedScenarios.Length -gt 1 -or ($parsedScenarios.Length -eq 1 -and $Null -ne $parsedScenarios[0].Feature))
+    {
+        Invoke-GherkinHooks -hookType ([HookType]::SetupTestRun)
+        $featureExecutionResults = @($parsedScenarios | ForEach-Object { Run-FeatureScenarios -featureFile $_.ScenarioFilePath -feature $_.Feature })
+        Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
+    }
+
+    if ($formatResultsToTable)
+    {
+        $featureExecutionResults | `
+            ForEach-Object {
+                $it = $_
+                $it.ScenarioExecutionResults | `
+                    Foreach-Object { $_ + @{ Feature = $it.Feature.Title } }
+            } | `
+            ForEach-Object {
+                [PSCustomObject]$_
+            } | `
+            Format-Table `
+                -GroupBy Feature `
+                -Property Scenario, ScenarioOutcome, Duration `
+                -AutoSize
+    }
+    else
+    {
+        $featureExecutionResults
+    }
 }

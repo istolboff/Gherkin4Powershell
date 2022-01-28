@@ -147,10 +147,13 @@ class ExecutionHook
 
     [string[]] $Tags
 
-    ExecutionHook([scriptblock] $sb, [string[]] $t)
+    [string] $DefinedIn
+
+    ExecutionHook([scriptblock] $sb, [string[]] $t, [string] $file)
     {
         $this.Script = $sb
         $this.Tags = $t
+        $this.DefinedIn = $file
     }
 }
 
@@ -186,10 +189,13 @@ class StepBinding
 
     [scriptblock] $Script
 
-    StepBinding([regex] $sp, [scriptblock] $ss)
+    [string] $DefinedIn
+
+    StepBinding([regex] $sp, [scriptblock] $ss, [string] $file)
     {
         $this.Pattern = $sp
         $this.Script = $ss
+        $this.DefinedIn = $file
     }
 
     [MatchedStepBinding] TryMatch([string] $stepText)
@@ -347,14 +353,46 @@ function Define-TestParametersCore($parameters, [switch] $optional)
     }
 }
 
+function Describe-TestParameters($parameters, [switch] $optional)
+{
+    0..($parameters.Length / 2 - 1) | ForEach-Object {
+        $parameterDescription = @{ 
+                Name = ($parameters[2 * $_]); 
+                DefinedIn = (Get-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global).Value;
+                IsOptional = $optional
+            }
+
+        if ($optional)
+        {
+            $parameterDescription.Add('DefaultValue', ($parameters[2 * $_ + 1].Value))
+        }
+
+        [TestRunContext]::Current.ModifyValue('WhatIfMode:Parameters', { param ($parameters) $parameters.Add($parameterDescription) })
+    }
+}
+
 function Define-TestParameters
 {
-    Define-TestParametersCore -parameters $args
+    if ([TestRunContext]::Current.HasValue('WhatIfMode:') -and [bool]([TestRunContext]::Current.GetValue('WhatIfMode:')))
+    {
+        Describe-TestParameters -parameters $args
+    }
+    else
+    {
+        Define-TestParametersCore -parameters $args
+    }
 }
 
 function Define-OptionalTestParameters
 {
-    Define-TestParametersCore -parameters $args -optional
+    if ([TestRunContext]::Current.HasValue('WhatIfMode:') -and [bool]([TestRunContext]::Current.GetValue('WhatIfMode:')))
+    {
+        Describe-TestParameters -parameters $args -optional
+    }
+    else
+    {
+        Define-TestParametersCore -parameters $args -optional
+    }
 }
 
 function Register-AvailableTestParamers([array] $dynamicParamers)
@@ -381,71 +419,83 @@ function Register-CustomTypeConverter([Type] $typeWithConverterMethods)
 #endregion
 
 #region Hook setters
+function New-Hook([scriptblock] $hs, [string[]] $t)
+{
+    $definedInFile = (Get-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global).Value
+    [ExecutionHook]::new($hs, $t, $definedInFile)
+}
+
 function BeforeTestRun([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::SetupTestRun, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupTestRun, (New-Hook -hs $hookScript -t $tags))
 }
 
 function AfterTestRun([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownTestRun, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownTestRun, (New-Hook -hs $hookScript -t $tags))
 }
 
 function BeforeFeature([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::SetupFeature, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupFeature, (New-Hook -hs $hookScript -t $tags))
 }
 
 function AfterFeature([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownFeature, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownFeature, (New-Hook -hs $hookScript -t $tags))
 }
 
 function BeforeScenario([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenario, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenario, (New-Hook -hs $hookScript -t $tags))
 }
 
 function AfterScenario([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenario, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenario, (New-Hook -hs $hookScript -t $tags))
 }
 
 function BeforeScenarioBlock([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioBlock, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioBlock, (New-Hook -hs $hookScript -t $tags))
 }
 
 function AfterScenarioBlock([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioBlock, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioBlock, (New-Hook -hs $hookScript -t $tags))
 }
 
 function BeforeStep([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioStep, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::SetupScenarioStep, (New-Hook -hs $hookScript -t $tags))
 }
 
 function AfterStep([scriptblock] $hookScript, [string[]] $tags)
 {
-    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioStep, [ExecutionHook]::new($hookScript, $tags))
+    [Known]::GherkinHooks.RegisterHook([HookType]::TeardownScenarioStep, (New-Hook -hs $hookScript -t $tags))
 }
 #endregion
 
 #region Step definitions
+function New-StepBinding([regex]$sp, [scriptblock] $ss)
+{
+    $definedInFile = (Get-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global).Value
+    [StepBinding]::new($sp, $ss, $definedInFile)
+}
+
 function Given([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    [Known]::StepDefinitions.RegisterDefinition([StepType]::Given, [StepBinding]::new($stepPattern, $stepScript))
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::Given, (New-StepBinding -sp $stepPattern -ss $stepScript))
 }
 
 function When([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    [Known]::StepDefinitions.RegisterDefinition([StepType]::When, [StepBinding]::new($stepPattern, $stepScript))
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::When, (New-StepBinding -sp $stepPattern -ss $stepScript))
 }
 
 function Then([regex]$stepPattern, [scriptblock] $stepScript)
 {
-    [Known]::StepDefinitions.RegisterDefinition([StepType]::Then, [StepBinding]::new($stepPattern, $stepScript))
+    [Known]::StepDefinitions.RegisterDefinition([StepType]::Then, (New-StepBinding -sp $stepPattern -ss $stepScript))
 }
 
 function Given-When([regex]$stepPattern, [scriptblock] $stepScript)

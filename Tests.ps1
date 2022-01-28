@@ -420,6 +420,8 @@ class Pair
 
 Clean-GherkinRunningInfrastructure
 
+Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value  $myInvocation.MyCommand.Definition
+
 BeforeTestRun {
     [TestRunContext]::Current.SetValue('InvocationHistory', (New-Object System.Collections.ArrayList))
     [TestRunContext]::Current.ModifyValue('InvocationHistory', { param($value) $value.Add((Hook 'BeforeTestRun')) })
