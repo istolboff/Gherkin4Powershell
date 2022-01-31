@@ -273,19 +273,18 @@ Please refine the pattern's regex-es so that each step text was matched by exaqc
 
 class CustomTypeConverters
 {
-    [System.Collections.Generic.IDictionary[Type, System.Reflection.MethodInfo]] hidden $_registeredConverters = [System.Collections.Generic.Dictionary[Type, System.Reflection.MethodInfo]]::new()
+    [System.Collections.Generic.IDictionary[Type, scriptblock]] hidden $_registeredConverters = [System.Collections.Generic.Dictionary[Type, scriptblock]]::new()
 
-    [void] RegisterConverter([System.Reflection.MethodInfo] $method)
+    [void] RegisterConverter([type] $targetType, [scriptblock] $converter)
     {
-        $targetType = $method.ReturnType
         Verify-That `
             -condition (-not $this._registeredConverters.ContainsKey($targetType)) `
             -message {
                 $duplicateConverter = $this._registeredConverters[$targetType]
-                "Both method $($method.DeclaringType.Name).$($method.Name) and method $($duplicateConverter.DeclaringType.Name).$($duplicateConverter.Name) define custom conversion to the type $($targetType.FullName)" 
+                "Both scriptblocks { $converter } and { $duplicateConverter } define custom conversion to the type $($targetType.FullName)"
             }
 
-        $this._registeredConverters.Add($targetType, $method)
+        $this._registeredConverters.Add($targetType, $converter)
     }
 
     [object] ApplyTo([object] $value, [Type] $type)
@@ -293,7 +292,7 @@ class CustomTypeConverters
         $result = switch ($this._registeredConverters.ContainsKey($type))
                 {
                     $false { $value }
-                    $true  { $this._registeredConverters[$type].Invoke($null, @($value)) }
+                    $true  { & $this._registeredConverters[$type] $value }
                 }
         return $result
     }
@@ -409,12 +408,9 @@ function Register-AvailableTestParamers([array] $dynamicParamers)
 #endregion
 
 #region Custom Type Converters
-function Register-CustomTypeConverter([Type] $typeWithConverterMethods)
+function CustomType-Converter([Type] $targetType, [scriptblock] $converter)
 {
-    $typeWithConverterMethods.GetMethods([System.Reflection.BindingFlags]::Static + [System.Reflection.BindingFlags]::Public) | `
-        ForEach-Object {
-            [Known]::CustomTypeConverters.RegisterConverter($_)
-        }
+    [Known]::CustomTypeConverters.RegisterConverter($targetType, $converter)
 }
 #endregion
 

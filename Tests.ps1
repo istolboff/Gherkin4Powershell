@@ -553,11 +553,10 @@ Then ([regex] 'its numerical value should be equal to (.*)') {
     }
 }
 
-Given ([regex] 'custom type converters defined in class (.*)') {
-    param ($className, [GherkinTable] $table)
-    $methodDefinitions = @($table.Rows | ForEach-Object { "static $($_.'Converting method definition')" }) -join [Environment]::NewLine
-    Invoke-Expression "class $className { $([Environment]::NewLine) $methodDefinitions $([Environment]::NewLine) }"
-    Register-CustomTypeConverter ([System.Management.Automation.PSTypeName]$className).Type
+CustomType-Converter ([Pair]) {
+    param ($text) 
+    $components = $text -split ','
+    [Pair]::new($components[0], $components[1])
 }
 
 Running (Gherkin-Script '') -illustrating 'Empty *.feature' | should result in invocation of @()
@@ -1300,10 +1299,7 @@ Scenario: z-0
 [void] (Running (Gherkin-Script @"
 Feature: z
 Scenario: z-1
-    Given custom type converters defined in class MyConverters 
-    | Converting method definition                                                                                                                |
-    | [Pair] Transform([string] `$text) { `$firstAndSecond = `$text -split ','; return [Pair]::new([int]`$firstAndSecond[0], [int]`$firstAndSecond[1]) } |
-    And a Pair object with the values 120,-5
+    Given a Pair object with the values 120,-5
     Then its First property should be equal to 120
     And its Second property should be equal to -5
 "@) `
