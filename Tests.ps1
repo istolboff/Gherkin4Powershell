@@ -517,7 +517,7 @@ Then ([regex]'I should have only (.*) left as a friend') {
 
 Given-WhenThen ([regex] "A failed Assertion with the text '(.*)' takes place") {
     param ($assertionMessage)
-    Assert-That -condition $false -message $assertionMessage
+    Assert-That -condition $false -message $assertionMessage -omitCallStack
 }
 
 Given ([regex] 'a timespan object with the value (.*)') {

@@ -98,6 +98,11 @@ class GherkinTable
         $this.Header = $h
         $this.Rows = $r
     }
+
+    [string[]] GetColumnValues([string] $columnName)
+    {
+        return @($this.Rows | ForEach-Object { $_[$columnName] })
+    }
 }
 
 class GherkinContextBase
@@ -529,7 +534,7 @@ function Get-AllFailedAssertionsInfo
     }
 }
 
-function Assert-That($condition, $message, [switch] $fatal, [switch] $passThrough)
+function Assert-That($condition, $message, [switch] $fatal, [switch] $passThrough, [switch] $omitCallStack)
 {
     function Add-FailedAssertionInfo($message)
     {
@@ -546,6 +551,11 @@ function Assert-That($condition, $message, [switch] $fatal, [switch] $passThroug
         if ($null -eq [ScenarioContext]::Current)
         {
             throw $message
+        }
+
+        if (-not ($fatal -or $omitCallStack))
+        {
+            $message = $message + [Environment]::NewLine + ((Get-PSCallStack) -join ([Environment]::NewLine))
         }
 
         Add-FailedAssertionInfo $message

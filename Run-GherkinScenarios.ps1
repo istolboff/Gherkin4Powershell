@@ -780,9 +780,9 @@ function Invoke-GherkinHooks([HookType] $hookType)
 
     switch ($hookType)
     {
-        [HookType]::SetupTestRun { Log-TestRunning 'Starting test run' }
-        [HookType]::SetupFeature { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        [HookType]::SetupScenario { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        SetupTestRun { Log-TestRunning 'Starting test run' }
+        SetupFeature { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        SetupScenario { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
     }
 
     foreach ($hookData in ([Known]::GherkinHooks.ForType($hookType) | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
@@ -796,9 +796,9 @@ function Invoke-GherkinHooks([HookType] $hookType)
 
     switch ($hookType)
     {
-        [HookType]::TeardownTestRun { Log-TestRunning 'Finished test run' }
-        [HookType]::TeardownFeature { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        [HookType]::TeardownScenario { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        TeardownTestRun { Log-TestRunning 'Finished test run' }
+        TeardownFeature { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
+        TeardownScenario { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
     }
 }
 
@@ -832,7 +832,7 @@ function Run-ScenarioStep($stepType)
         $stepText = $_.StepText
         $extraArgument = $_.ExtraArgument
         $stepBinding = Bind-ToStepExecuter -stepType $stepType -stepText $stepText -extraArgument $extraArgument
-        Log-TestRunning "Starting executing step '$($stepBinding.StepPattern)' with arguments $($stepBinding.StepArguments)"
+        Log-TestRunning "Starting executing step '$($stepBinding.StepPattern)' with arguments <$($stepBinding.StepArguments)> using the following code: {$($stepBinding.StepScript)}"
         if ($showCurrentStepInConsoleTitle)
         {
             $host.ui.RawUI.WindowTitle = $_.StepText
@@ -959,6 +959,8 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
                             -exceptionInfo $PSItem.Exception `
                             -duration $stopwatch.Elapsed
             }
+
+#            Log-TestRunning -message $PSItem.Exception.ToString()
 
             Invoke-GherkinHooks -hookType ([HookType]::TeardownFeature)
             Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
@@ -1127,7 +1129,7 @@ if (-not [string]::IsNullOrEmpty($stepDefinitions))
 
 Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value 'standard definitions'
 
-Given-When ([regex] 'Halt\:(.*)') {
+Given-WhenThen ([regex] 'Halt\:(.*)') {
     param ($message)
     [void](Read-Host "$message$([Environment]::NewLine)Press Enter to continue...")
 }
