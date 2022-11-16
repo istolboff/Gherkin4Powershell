@@ -189,6 +189,17 @@ class ParsingResult
     }
 }
 
+class Parser
+{
+    [array] $Parsers
+
+    Parser([array] $p)
+    {
+        Verify-That -condition ($p.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
+        $this.Parsers = $p
+    }
+}
+
 #region Monadic Parsing
 class MonadicParsing
 {
@@ -223,6 +234,9 @@ class MonadicParsing
                 $parsedValue = $matchingResult.Groups[1].Value
                 Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
                 return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
+            }
+            { $parser -is [Parser]} {
+                return [MonadicParsing]::ParseWith($parser.Parsers, $content)
             }
             { $parser -is [array] } {
                 Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
@@ -447,6 +461,16 @@ Set-Alias select_ Select-ParsedValue
 #region Gherkin Keywords in different languages
 function Build-GherkinKeywordParsers($cultureName)
 {
+    function Make-GivenWhenThenParser([string[]] $keywords)
+    {
+        One-Of ($keywords | ForEach-Object { 
+            [Parser]::new(
+                @((from_ keyword in $_),
+                 (from_ whitespace in ([regex]'\s')),
+                 (select_ { $keyword })))
+        })
+    }
+
     $allGherkinKeywords = @{
         'af' = @{ And = "*","En"; Background = "Agtergrond"; But = "*","Maar"; Examples = "Voorbeelde"; Feature = "Funksie","Besigheid Behoefte","Vermoë"; Given = "*","Gegewe"; Name = "Afrikaans"; Native = "Afrikaans"; Rule = "Rule"; Scenario = "Voorbeeld","Situasie"; ScenarioOutline = "Situasie Uiteensetting"; Then = "*","Dan"; When = "*","Wanneer" };
         'am' = @{ And = "*","Եվ"; Background = "Կոնտեքստ"; But = "*","Բայց"; Examples = "Օրինակներ"; Feature = "Ֆունկցիոնալություն","Հատկություն"; Given = "*","Դիցուք"; Name = "Armenian"; Native = "հայերեն"; Rule = "Rule"; Scenario = "Օրինակ","Սցենար"; ScenarioOutline = "Սցենարի կառուցվացքը"; Then = "*","Ապա"; When = "*","Եթե","Երբ" };
@@ -537,12 +561,12 @@ function Build-GherkinKeywordParsers($cultureName)
             Background = (One-Of @($localizedKeywords.Background | ForEach-Object { $_ + ':' }));
             Scenario = (One-Of @($localizedKeywords.Scenario | ForEach-Object { $_ + ':' }));
             ScenarioOutline = (One-Of @($localizedKeywords.ScenarioOutline | ForEach-Object { $_ + ':' }));
-            Given = (One-Of ($localizedKeywords.Given));
-            When = (One-Of ($localizedKeywords.When));
-            Then = (One-Of ($localizedKeywords.Then));
+            Given = (Make-GivenWhenThenParser ($localizedKeywords.Given));
+            When = (Make-GivenWhenThenParser ($localizedKeywords.When));
+            Then = (Make-GivenWhenThenParser ($localizedKeywords.Then));
             Examples = (One-Of ($localizedKeywords.Examples | ForEach-Object { $_ + ':' }));
-            And = (One-Of ($localizedKeywords.And));
-            But = (One-Of ($localizedKeywords.But));
+            And = (Make-GivenWhenThenParser ($localizedKeywords.And));
+            But = (Make-GivenWhenThenParser ($localizedKeywords.But));
             Rule = (One-Of ($localizedKeywords.Rule | ForEach-Object { $_ + ':' }))
         }
         $result.Add('Keywords', @($result.Feature, $result.Background, $result.Scenario, $result.ScenarioOutline, $result.Rule, $result.Given, $result.When, $result.Then, $result.Examples, $result.And, $result.But | ForEach-Object { $_ }))
@@ -656,7 +680,7 @@ function SingleStep-Parser($firstStepLineParser)
 
 function Gherkin-LineParser($keywordParser, [switch] $emptyRestOfLineIsAnError)
 {
-    $restOfLineParser = switch ($emptyRestOfLineIsAnError) { $False { (One-Of ([regex]'\s(.*)'), ([regex]'$')) } $True { ([regex]'\s(.*)') } }
+    $restOfLineParser = switch ($emptyRestOfLineIsAnError) { $False { (One-Of ([regex]'\s*(.*)'), ([regex]'$')) } $True { ([regex]'\s*(.*)') } }
     return $keywordParser,
            (from_ restOfLine in $restOfLineParser),
            (select_ { $restOfLine | Trim-String })

@@ -23,7 +23,7 @@ function Save-ContentToTemporaryFile($scriptContent)
     return $temporaryFilePath
 }
 
-function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectFailures, [switch] $failFast)
+function Running($scriptContent, $illustrating, $tags = $Null, $cultureName = 'en', [switch] $expectFailures, [switch] $failFast)
 {
     try
     {
@@ -33,7 +33,7 @@ function Running($scriptContent, $illustrating, $tags = $Null, [switch] $expectF
         $featureExecutionResults = @(& $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `
                                 -scenarios $temporaryFilePath `
                                 -tags $tags `
-                                -cultureName 'en' `
+                                -cultureName $cultureName `
                                 -logParsingToFile $parsingLogFile `
                                 -logTestRunningToFile $runningLogFile `
                                 -doNotCleanupGherkinRunningInfrastructure `
@@ -558,6 +558,7 @@ CustomType-Converter ([Pair]) {
     $components = $text -split ','
     [Pair]::new($components[0], $components[1])
 }
+
 
 Running (Gherkin-Script '') -illustrating 'Empty *.feature' | should result in invocation of @()
 
@@ -1378,4 +1379,57 @@ Example: r-005, e-02
             -with `
                 (Single-GivenStep 'Call me Argument(Ishmael)'),
                 (Single-WhenStep 'Argument(1) plus Argument(2) gives Argument(3)')))
+#endregion
+
+#region Handling spaces after line-starting keywords
+
+Running (Gherkin-Script @"
+Feature:No spaces after colons
+Scenario:001
+    Given Call me Ishmael
+Scenario:002
+    When 4 plus 5 gives 9
+Scenario:003
+    Then everything should be alright
+"@) `
+    -illustrating 'No spaces after colons' | should result in invocation of `
+        (Feature 'No spaces after colons' -with `
+            (Scenario '001' `
+                -with (Single-GivenStep 'Call me Argument(Ishmael)')),
+            (Scenario '002' `
+                -with (Single-WhenStep 'Argument(4) plus Argument(5) gives Argument(9)')),
+            (Scenario '003' `
+                -with (Single-ThenStep 'everything should be alright')))
+
+
+foreach ($spaces in ' ', '  ', '   ', "`t", "`t `t ")
+{
+    $quotedSpaces = "``$($spaces.Replace("`t", '\t'))``"
+    Running (Gherkin-Script @"
+Feature:$($spaces)handling spaces $quotedSpaces after different keywords
+Scenario:$($spaces)001 
+    Given$($spaces)Call me Ishmael
+Scenario:$($spaces)002
+    When$($spaces)4 plus 5 gives 9
+Scenario:$($spaces)003
+    Then$($spaces)everything should be alright
+"@) `
+        -illustrating "handling spaces after different keywords: $quotedSpaces" | should result in invocation of `
+            (Feature "handling spaces $quotedSpaces after different keywords" -with `
+                (Scenario '001' `
+                    -with (Single-GivenStep 'Call me Argument(Ishmael)')),
+                (Scenario '002' `
+                    -with (Single-WhenStep 'Argument(4) plus Argument(5) gives Argument(9)')),
+                (Scenario '003' `
+                    -with (Single-ThenStep 'everything should be alright')))
+}
+
+Running (Gherkin-Script @"
+Функциональность: another bug
+Сценарий: 002
+Тогда everything should be alright
+"@) `
+    -cultureName 'ru' `
+    -illustrating 'There should be a space after Given/When/Then keywords' | should result in invocation of `
+        (Feature 'another bug' -with (Scenario '002' -with (Single-ThenStep 'everything should be alright')))
 #endregion
