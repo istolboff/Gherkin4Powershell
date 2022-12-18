@@ -12,20 +12,18 @@
     [switch] $whatIf)
 
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
+. (Join-Path -Path $PSScriptRoot -ChildPath 'MonadicParsing.ps1')
 
 trap {
     if ($global:Error.Count -gt 0)
     {
-        foreach ($record in @($global:Error[0]))
+        $errorDescription = (Get-Error | Out-String)
+        if ($failFast)
         {
-            $errorDescription = Describe-ErrorRecord -errorRecord $record
-            if ($failFast)
-            {
-                Log-TestRunning -message $errorDescription
-            }
-
-            $errorDescription | Out-Host
+            Log-TestRunning -message $errorDescription
         }
+
+        $errorDescription | Out-Host
     }
 
     exit 1;
@@ -126,344 +124,12 @@ function List-Files($fileSet)
 }
 #endregion
 
-class FeatureFileContent
-{
-    [string[]] hidden   $TextLines
-    [int] hidden        $CurrentLineNumber
-    [int] hidden        $OffsetInCurrentLine
-
-    FeatureFileContent([string[]] $textLines, [int] $currentLineNumber, [int] $offsetInCurrentLine)
-    {
-        Verify-That -condition ($currentLineNumber -lt $textLines.Length) -message 'Attempt to read past the end of file'
-        $this.TextLines = $textLines
-        $this.CurrentLineNumber = $currentLineNumber
-        $this.OffsetInCurrentLine = $offsetInCurrentLine
-    }
-
-    [FeatureFileContent] Skip([int] $characterCount)
-    {
-        return [FeatureFileContent]::new($this.TextLines, $this.CurrentLineNumber, $this.OffsetInCurrentLine + $characterCount)
-    }
-
-    [bool] CurrentLineContainsNonSpaceCharacters()
-    {
-        $currentLineChars = $this.TextLines[$this.CurrentLineNumber]
-        return $currentLineChars.Substring($this.OffsetInCurrentLine).Trim().Length -gt 0
-    }
-
-    [FeatureFileContent] GetNextLine()
-    {
-        function Get-IndexOfFirstNonSpaceCharacter($lineChars)
-        {
-            if (-not ($lineChars -match '^\s*#.*$'))
-            {
-                $matchingResult = ([regex]'\S').Match($lineChars)
-                switch ($matchingResult.Success) { $False { $Null } $True { $matchingResult.Index } }
-            }
-        }
-
-        for ($nextLineIndex = $this.CurrentLineNumber + 1; $nextLineIndex -lt $this.TextLines.Length; $nextLineIndex++)
-        {
-            $lineChars = $this.TextLines[$nextLineIndex]
-            $offset = Get-IndexOfFirstNonSpaceCharacter $lineChars
-            if ($Null -ne $offset)
-            {
-                return [FeatureFileContent]::new($this.TextLines, $nextLineIndex, $offset)
-            }
-        }
-
-        return $Null
-    }
-}
-
-class ParsingResult
-{
-    [object] $Value
-
-    [FeatureFileContent] $Rest
-
-    ParsingResult([object] $value, [FeatureFileContent] $rest)
-    {
-        $this.Value = $value
-        $this.Rest = $rest
-    }
-}
-
-class Parser
-{
-    [array] $Parsers
-
-    Parser([array] $p)
-    {
-        Verify-That -condition ($p.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
-        $this.Parsers = $p
-    }
-}
-
-#region Monadic Parsing
-class MonadicParsing
-{
-    static [ParsingResult] ParseWith($parser, [FeatureFileContent] $content)
-    {
-        switch ($null)
-        {
-            { $parser -is [scriptblock] } {
-                return & $parser $content
-            }
-            { $parser -is [string] } {
-                $patternLength = $parser.Length
-                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-                if ([String]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
-                {
-                    Log-Parsing "Literal [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-                    return $Null
-                }
-
-                Log-Parsing "Literal [$parser] matched on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-                return [ParsingResult]::new($parser, $content.Skip($patternLength))
-            }
-            { $parser -is [regex] } {
-                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-                $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
-                if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
-                {
-                    Log-Parsing "Regex [$parser] failed on line $currentLineChars at offset $($content.OffsetInCurrentLine)"
-                    return $Null
-                }
-
-                $parsedValue = $matchingResult.Groups[1].Value
-                Log-Parsing "Regex [$parser] matched on line $($currentLineChars) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
-                return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
-            }
-            { $parser -is [Parser]} {
-                return [MonadicParsing]::ParseWith($parser.Parsers, $content)
-            }
-            { $parser -is [array] } {
-                Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
-                [ParsingResult] $parsingResult = $null
-                foreach ($nextParser in $parser)
-                {
-                    $parsingResult = [MonadicParsing]::ParseWith($nextParser, $content)
-                    if ($Null -eq $parsingResult)
-                    {
-                        return $Null
-                    }
-
-                    $content = $parsingResult.Rest
-                }
-
-                return $parsingResult
-            }
-        }
-
-        throw "Do not know how to parse with $parser of type $($parser.GetType())"
-    }
-}
-
-function Optional([ValidateNotNullOrEmpty()] $parser, $orElse = $null)
-{
-    return {
-        param ([FeatureFileContent] $content)
-        switch ($parsingResult = [MonadicParsing]::ParseWith($parser, $content))
-        {
-            $null  { [ParsingResult]::new($orElse, $content) }
-            default { $parsingResult }
-        }
-    }.GetNewClosure()
-}
-
-function Repeat([ValidateNotNullOrEmpty()]$parser, [switch] $allowZeroRepetition)
-{
-    return {
-        param ([FeatureFileContent] $content)
-
-        $values = @()
-
-        $restOfContent = $content
-        while ($True)
-        {
-            $parsingResult = [MonadicParsing]::ParseWith($parser, $restOfContent)
-            if ($Null -eq $parsingResult)
-            {
-                if (-Not $allowZeroRepetition -and $values.Length -eq 0)
-                {
-                    return $Null
-                }
-
-                return [ParsingResult]::new($values, $restOfContent)
-            }
-
-            if ($parsingResult.Value -is [array])
-            {
-                $values += , $parsingResult.Value
-            }
-            else
-            {
-                $values += $parsingResult.Value
-            }
-
-            $restOfContent = $parsingResult.Rest
-        }
-    }.GetNewClosure()
-}
-
-function One-Of([array] $parsers)
-{
-    $parsers | ForEach-Object { Verify-That -condition ($_ -ne $Null) -message 'Program logic error: One-Of(...$Null...)' }
-
-    return {
-        param ([FeatureFileContent] $content)
-
-        foreach ($parserAlternative in $parsers)
-        {
-            $parsingResult = [MonadicParsing]::ParseWith($parserAlternative, $content)
-            if ($Null -ne $parsingResult)
-            {
-                return $parsingResult
-            }
-        }
-
-        return $Null
-    }.GetNewClosure()
-}
-
-function Anything-But([ValidateNotNullOrEmpty()] $parser)
-{
-    return {
-        param ([FeatureFileContent] $content)
-
-        $parsingResult = [MonadicParsing]::ParseWith($parser, $content)
-        if ($Null -ne $parsingResult)
-        {
-            return $Null
-        }
-
-        return [ParsingResult]::new($True, $content)
-    }.GetNewClosure()
-}
-#endregion
-
-#region Parsing single line of text
-function Complete-Line([ValidateNotNullOrEmpty()] $parser)
-{
-    return {
-            param ([FeatureFileContent] $content)
-
-            $nextLine = $content.GetNextLine()
-            if ($Null -eq $nextLine)
-            {
-                return $Null
-            }
-
-            $parsingResult = [MonadicParsing]::ParseWith($parser, $nextLine)
-            if ($Null -eq $parsingResult) # unrecognized pattern
-            {
-                return $Null
-            }
-
-            # If $parser matched the beginning of the line, but there still remain some unrecognized characters
-            if ($parsingResult.Rest.CurrentLineContainsNonSpaceCharacters())
-            {
-                return $Null
-            }
-
-            return $parsingResult
-        }.GetNewClosure()
-}
-
-function EndOfContent
-{
-    return {
-        param ([FeatureFileContent] $content)
-
-        while ($True)
-        {
-            $nextLine = $content.GetNextLine()
-            if ($Null -eq $nextLine)
-            {
-                return [ParsingResult]::new($True, $content)
-            }
-
-            if ($nextLine.CurrentLineContainsNonSpaceCharacters())
-            {
-                return $Null
-            }
-
-            $content = $nextLine
-        }
-    }.GetNewClosure()
-}
-#endregion
-
-#region Linq-like expressions
-function From-Parser
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$True, Position=0)]
-        [string][ValidateNotNullOrEmpty()]$parsingResultName,
-
-        [Parameter(Mandatory=$true, Position=1)]
-        [string][ValidateSet('in')]$textIn,
-
-        [Parameter(Mandatory=$true, Position=2)]
-        [object][ValidateNotNullOrEmpty()]$parser)
-
-    $captured_LogParsing_Function = ${function:Log-Parsing}
-
-    return {
-        param ([FeatureFileContent] $content)
-
-        $parsingResult = [MonadicParsing]::ParseWith($parser, $content)
-        if ($Null -ne $parsingResult)
-        {
-            Set-Variable -Name $parsingResultName -Value $parsingResult.Value -Scope 2
-            & $captured_LogParsing_Function "from_ $parsingResultName => $($parsingResult.Value)"
-        }
-
-        return $parsingResult
-    }.GetNewClosure()
-}
-Set-Alias from_ From-Parser
-
-function Restrict-ParsedValue
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$True, Position=0)]
-        [scriptblock][ValidateNotNullOrEmpty()]$parsedValueChecker)
-
-    return  {
-        param ([FeatureFileContent] $content)
-        switch (& $parsedValueChecker) { $false { $null } default { [ParsingResult]::new($true, $content) } }
-    }.GetNewClosure()
-}
-
-Set-Alias where_ Restrict-ParsedValue
-
-function Select-ParsedValue
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$True, Position=0)]
-        [scriptblock][ValidateNotNullOrEmpty()]$parsedValueProducer)
-
-    return {
-        param ([FeatureFileContent] $content)
-        # by now, all variables calculated in previous 'from_' invocations should be accessible in this scope, so $parsedValueProducer can do its job
-        $calculatedValue = & $parsedValueProducer
-        return [ParsingResult]::new($calculatedValue, $content)
-    }.GetNewClosure()
-}
-Set-Alias select_ Select-ParsedValue
-#endregion
-
 #region Gherkin Keywords in different languages
 function Build-GherkinKeywordParsers($cultureName)
 {
     function Make-GivenWhenThenParser([string[]] $keywords)
     {
-        One-Of ($keywords | ForEach-Object { 
+        One-Of ($keywords | ForEach-Object {
             [Parser]::new(
                 @((from_ keyword in $_),
                  (from_ whitespace in ([regex]'\s')),
@@ -588,12 +254,12 @@ $TagsParser = Optional $TagsParserCore -orElse @()
 
 $Other = (Anything-But (One-Of @($GherkinKeywordParsers.Keywords, ([regex]'\s*(\|)'), ([regex]'\s*(@)'), ([regex]'\s*(""")\s*$') | ForEach-Object { $_ }))), ([regex]'(.*)$')
 
-$DescriptionHelper = Repeat (One-Of (Complete-Line $Comment), (Complete-Line $Other)) -allowZeroRepetition
+$DescriptionHelper = Repeat (One-Of (Complete-Line $Comment), (Complete-Line $Other)) -minimum 0
 
 $TableRow = Complete-Line(@(([regex]'\s*[|]'), (Repeat ([regex]'\s*([^|]*)[|]'))))
 
 $DataTable = (from_ parsedTableHeader in $TableRow),
-             (from_ parsedTableData in (Repeat $TableRow -allowZeroRepetition)),
+             (from_ parsedTableData in (Repeat $TableRow -minimum 0)),
              (select_ {
                 function IsSeparatorRow([hashtable] $row)
                 {
@@ -665,7 +331,7 @@ $DataTable = (from_ parsedTableHeader in $TableRow),
 $DocStringSeparator = [regex]'\s*(""")\s*$'
 
 $DocString = (Complete-Line $DocStringSeparator),
-             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Complete-Line $DocStringSeparator)), (Complete-Line ([regex]'(.*)'))) -allowZeroRepetition)),
+             (from_ parsedDocStringLine in (Repeat -parser @((Anything-But (Complete-Line $DocStringSeparator)), (Complete-Line ([regex]'(.*)'))) -minimum 0)),
              (Complete-Line $DocStringSeparator),
              (select_ { [String]::Join([Environment]::NewLine, $parsedDocStringLine) })
 
@@ -691,7 +357,7 @@ function StepBlock-Parser($stepKeywordParser, [StepType] $stepType)
     $allButFirstLineInBlockParser = One-Of @($stepKeywordParser, $GherkinKeywordParsers.And, $GherkinKeywordParsers.But | ForEach-Object { Complete-Line (Gherkin-LineParser $_ -emptyRestOfLineIsAnError) })
 
     return (from_ firstLineInBlock in (SingleStep-Parser (Complete-Line (Gherkin-LineParser $stepKeywordParser -emptyRestOfLineIsAnError)))),
-           (from_ otherLinesInBlock in (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser)) -allowZeroRepetition)),
+           (from_ otherLinesInBlock in (Repeat (SingleStep-Parser ($allButFirstLineInBlockParser)) -minimum 0)),
            (select_ { @{
                           BlockType = $stepType;
                           Steps = @($firstLineInBlock) + @($otherLinesInBlock)
@@ -706,7 +372,7 @@ $ScenarioStepBlock = One-Of `
 
 $Background = (from_ backgroundName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Background))),
               (from_ backgroundDescription in $DescriptionHelper),
-              (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
+              (from_ backgroundStepBlocks in (Repeat $ScenarioStepBlock -minimum 0)),
               (select_ { @{ Name = $backgroundName; Description = $backgroundDescription; StepBlocks = $backgroundStepBlocks }})
 
 function Scenario-Parser($scenarioOrScenarioOutlineLexem)
@@ -714,7 +380,7 @@ function Scenario-Parser($scenarioOrScenarioOutlineLexem)
     return  (from_ scenarioTags in $TagsParser),
             (from_ scenarioName in (Complete-Line (Gherkin-LineParser $scenarioOrScenarioOutlineLexem))),
             (from_ scenarioDescription in $DescriptionHelper),
-            (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -allowZeroRepetition)),
+            (from_ scenarioStepBlocks in (Repeat $ScenarioStepBlock -minimum 0)),
             (select_ { @{ Title = $scenarioName; Description = $scenarioDescription; Tags = $scenarioTags; ScenarioBlocks = $scenarioStepBlocks } })
 }
 
@@ -732,7 +398,7 @@ $ExamplesDefinition = (from_ examplesTags in $TagsParser),
                                     }})
 
 $ScenarioOutline = (from_ scenarioTemplate in (Scenario-Parser $GherkinKeywordParsers.ScenarioOutline)),
-                   (from_ examples in (Repeat $ExamplesDefinition -allowZeroRepetition)),
+                   (from_ examples in (Repeat $ExamplesDefinition -minimum 0)),
                    (select_ { @{ ScenarioTemplate = $scenarioTemplate; Examples = $examples } })
 
 $RuleHeader = (from_ ruleName in (Complete-Line (Gherkin-LineParser $GherkinKeywordParsers.Rule))),
@@ -741,7 +407,7 @@ $RuleHeader = (from_ ruleName in (Complete-Line (Gherkin-LineParser $GherkinKeyw
               (select_ { @{ RuleTitle = $ruleName; RuleDescription = $ruleDescription; RuleBackground = $ruleBackground } })
 
 $RuleWithExamples = (from_ hdr in (Optional $RuleHeader)),
-                    (from_ exmpls in (Repeat (One-Of $Scenario, $ScenarioOutline) -allowZeroRepetition)),
+                    (from_ exmpls in (Repeat (One-Of $Scenario, $ScenarioOutline) -minimum 0)),
                     (where_ { ($null -ne $hdr) -or ($exmpls.Length -gt 0) }),
                     (select_ { @{ RuleHeader = $hdr; RuleExamples = $exmpls } })
 
@@ -752,7 +418,7 @@ $Feature_Header = (from_ featureTags in $TagsParser),
 
 $Feature = (from_ featureHeader in $Feature_Header),
            (from_ parsedBackground in (Optional -parser $Background -orElse @{ StepBlocks = $null })),
-           (from_ allRules in (Repeat $RuleWithExamples -allowZeroRepetition)),
+           (from_ allRules in (Repeat $RuleWithExamples -minimum 0)),
            (select_ { @{
                         Title = $featureHeader.Name;
                         Description = $featureHeader.Description;
@@ -766,14 +432,18 @@ $GherkinDocument = (from_ parsedFeature in (Optional $Feature)),
 #endregion
 
 #region class ScenarioExecutionResults
-function Build-ScenarioExecutionResults($scenario, [ScenarioOutcome] $scenarioOutcome, $exceptionInfo, $duration)
+function Build-ScenarioExecutionResults(
+    [hashtable] $scenario, 
+    [ScenarioOutcome] $scenarioOutcome, 
+    [System.Management.Automation.ErrorRecord] $exceptionInfo, 
+    [timespan] $duration)
 {
 	if ($null -ne $exceptionInfo)
 	{
-        $exceptionDescription = Describe-ErrorRecord -errorRecord $exceptionInfo
+        $exceptionDescription = $exceptionInfo | Get-Error | Out-String
         $message = "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title) $scenarioOutcome. $exceptionDescription"
         Log-TestRunning $message
-		Write-Host $message
+#		Write-Host $message
 	}
 	else
 	{
@@ -947,7 +617,7 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
             $scenario.Tags = @($featureTags | Except-Nulls) + @($scenario.Tags | Except-Nulls)
             if (Scenario-ShouldBeIgnoredAccordingToItsTags -scenarioTags $scenario.Tags)
             {
-                return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome ([ScenarioOutcome]::Ignored) -exceptionInfo $null -duration [timespan]::Zero
+                return Build-ScenarioExecutionResults -scenario $scenario -scenarioOutcome ([ScenarioOutcome]::Ignored) -exceptionInfo $null -duration ([timespan]::Zero)
             }
 
             [ScenarioContext]::Current = New-Object ScenarioContext
@@ -980,11 +650,9 @@ function Run-SingleScenario($featureTags, $backgroundBlocks)
                 return Build-ScenarioExecutionResults `
                             -scenario $currentScenario `
                             -scenarioOutcome ([ScenarioOutcome]::Failed) `
-                            -exceptionInfo $PSItem.Exception `
+                            -exceptionInfo $PSItem `
                             -duration $stopwatch.Elapsed
             }
-
-#            Log-TestRunning -message $PSItem.Exception.ToString()
 
             Invoke-GherkinHooks -hookType ([HookType]::TeardownFeature)
             Invoke-GherkinHooks -hookType ([HookType]::TeardownTestRun)
@@ -1143,7 +811,7 @@ if ($whatIf)
 if (-not [string]::IsNullOrEmpty($stepDefinitions))
 {
 	List-Files $stepDefinitions | `
-        Where-Object { $_.EndsWith('.ps1') } | `
+        Where-Object { $_.EndsWith('.ps1') -and -not ((Get-Content -Path $_ -TotalCount 1) -eq '#NoStepDefinitionsHere') } | `
         ForEach-Object {
             $stepDefinitionFilePath = $_
             Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value $stepDefinitionFilePath
@@ -1155,7 +823,7 @@ Set-Variable -Name GlobalCurrentStepDefinitionFilePath -Scope Global -Value 'sta
 
 Given-WhenThen ([regex] 'Halt\:(.*)') {
     param ($message)
-    [void](Read-Host "$message$([Environment]::NewLine)Press Enter to continue...")
+    [void](Read-Host "$message$([Environment]::NewLine)(Press Enter to continue)")
 }
 
 if ($whatIf)
@@ -1212,7 +880,7 @@ else
 {
     $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
             $scriptFilePath = $_
-            $scriptFileContent = [FeatureFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
+            $scriptFileContent = [SourceCodeFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
             $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
             if ($null -eq $parsingResult)
             {

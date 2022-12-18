@@ -4,14 +4,7 @@ $scriptFolder = $PSScriptRoot
 . (Join-Path -Path $scriptFolder -ChildPath 'Define-GherkinHooksApi.ps1')
 
 trap {
-    if ($global:Error.Count -gt 0)
-    {
-        foreach ($record in @($global:Error[0]))
-        {
-            Describe-ErrorRecord -errorRecord $record | Out-Host
-        }
-    }
-
+    Get-Error | Out-Host
     exit 1;
     continue
 }
@@ -120,7 +113,7 @@ function Compare-ObjectsWithNesting($referenceObject, $differenceObject)
         }
         elseif ($inputObject -is [string])
         {
-            $lines[-1] += "`"$($inputObject.Replace([Environment]::NewLine, '\r\n'))`""
+            $lines[-1] += "`"$($inputObject.Replace("`r`n", '\r\n').Replace("`n", '\r\n'))`""
         }
         elseif ($inputObject -is [array])
         {
@@ -226,9 +219,10 @@ function should
             throw "Test '$testDescription' failed: the scenario in the feature file was supposed to fail, but it didn't. "
         }
 
-        $failedAssertionsDifferencies = Compare-Object -ReferenceObject @($args[5]) -DifferenceObject @($executionResults.Error.Message -split [Environment]::NewLine)
+        $failedAssertionsDifferencies = Compare-Object -ReferenceObject @($args[5]) -DifferenceObject @($executionResults.Error.Exception.Message -split [Environment]::NewLine)
         if ($Null -eq $failedAssertionsDifferencies)
         {
+            Write-Host "Scenario $($executionResults.Scenario) ended with outcome=$($executionResults.ScenarioOutcome) as expected."
             return
         }
 
@@ -517,7 +511,7 @@ Then ([regex]'I should have only (.*) left as a friend') {
 
 Given-WhenThen ([regex] "A failed Assertion with the text '(.*)' takes place") {
     param ($assertionMessage)
-    Assert-That -condition $false -message $assertionMessage -omitCallStack
+    Assert-That -condition $false -message $assertionMessage -omitCallStack -canProceed
 }
 
 Given ([regex] 'a timespan object with the value (.*)') {
@@ -794,7 +788,7 @@ Scenario: s6
         """
     Then everything should be alright
 "@) `
--illustrating 'Scenario with single step with one parameter' | should result in invocation of `
+-illustrating 'Scenario with a step with PyStringArgument' | should result in invocation of `
     (Feature 'f6' `
         -with (Scenario 's6' `
                 -with (Single-WhenStep 'you hear Argument(the) eternal' `

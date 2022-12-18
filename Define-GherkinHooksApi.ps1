@@ -1,5 +1,62 @@
 Set-StrictMode -Version Latest
 
+if ($PSVersionTable.PSVersion.Major -eq 5)
+{
+	function Get-Error()
+	{
+        process 
+        {
+            function Try-AppendPositionMessage($errRec, $errorMessages)
+            {
+                if (($null -ne $errRec.Exception) -and ($errRec.Exception.PSobject.Properties.Name -contains 'ErrorRecord') -and ($null -ne $errRec.Exception.ErrorRecord))
+                {
+                    $errorMessages = Try-AppendPositionMessage -errRec $errRec.Exception.ErrorRecord -errorMessages $errorMessages
+                }
+
+                if ($null -ne $errRec.InvocationInfo -and $null -ne $errRec.InvocationInfo.PositionMessage)
+                {
+                    $errorMessages += ' ('
+                    $errorMessages += $errRec.InvocationInfo.PositionMessage | Out-String
+                    $errorMessages += ")$([Environment]::NewLine)"
+                }
+
+                $errorMessages
+            }
+
+            $errorRecord = $_
+            if ($null -eq $errorRecord -and $Global:Error.Count -gt 0)
+            {
+                foreach ($errorRecord in $Global:Error[0])
+                {
+                    break
+                }
+            }
+
+            $description = @()
+            if ($errorRecord -is [Exception])
+            {
+                $description += $errorRecord.ToString()
+            }
+            else
+            {
+                if ($null -ne $errorRecord.Exception)
+                {
+                    $description += $errorRecord.Exception.ToString()
+                }
+
+                $description = Try-AppendPositionMessage -errRec $errorRecord -errorMessages $description
+
+                if ($null -ne $errorRecord.ScriptStackTrace)
+                {
+                    $description += ($errorRecord.ScriptStackTrace | Out-String)
+                }
+            }
+
+            $description
+        }
+	}
+}
+
 #region Miscellaneous
 function Verify-That($condition, $message)
 {
@@ -12,48 +69,6 @@ function Verify-That($condition, $message)
                         }
         throw $exactMessage
     }
-}
-
-function Describe-ErrorRecord($errorRecord)
-{
-    function Try-AppendPositionMessage($errRec, $errorMessages)
-    {
-        if (($null -ne $errRec.Exception) -and ($errRec.Exception.PSobject.Properties.Name -contains 'ErrorRecord') -and ($null -ne $errRec.Exception.ErrorRecord))
-        {
-            $errorMessages = Try-AppendPositionMessage -errRec $errRec.Exception.ErrorRecord -errorMessages $errorMessages
-        }
-
-        if ($null -ne $errRec.InvocationInfo -and $null -ne $errRec.InvocationInfo.PositionMessage)
-        {
-            $errorMessages += ' ('
-            $errorMessages += $errRec.InvocationInfo.PositionMessage | Out-String
-            $errorMessages += ")$([Environment]::NewLine)"
-        }
-
-        $errorMessages
-    }
-
-    $description = @()
-    if ($errorRecord -is [Exception])
-    {
-        $description += $errorRecord.ToString()
-    }
-    else
-    {
-        if ($null -ne $errorRecord.Exception)
-        {
-            $description += $errorRecord.Exception.ToString()
-        }
-
-        $description = Try-AppendPositionMessage -errRec $errorRecord -errorMessages $description
-
-        if ($null -ne $errorRecord.ScriptStackTrace)
-        {
-            $description += ($errorRecord.ScriptStackTrace | Out-String)
-        }
-    }
-
-    $description
 }
 #endregion
 
@@ -120,6 +135,32 @@ class GherkinContextBase
     [void] ModifyValue([string] $name, [ScriptBlock] $modifyValue) { & $modifyValue $this.GetValue($name) }
 
     [void] RemoveValue([string] $name) { $this._values.Remove($name); }
+}
+
+function GetOrCreateContextValue([GherkinContextBase] $context, [string] $name, [scriptblock] $createValue, [switch] $asVoid)
+{
+    if (-not $context.HasValue($name))
+    {
+        Log-TestRunning -message "Creating $($context.GetType().Name)'s variable '$name' using the following code: $createValue"
+        $value = & $createValue
+        $context.SetValue($name, $value)
+        Log-TestRunning -message "Context variable '$name' was set to $value"
+    }
+
+    if (-not $asVoid)
+    {
+        $context.GetValue($name)
+    }
+}
+
+function TryUseContextValue([GherkinContextBase] $context, [string] $name, [scriptblock] $useValue)
+{
+    if ($context.HasValue($name))
+    {
+        $value = $context.GetValue($name)
+        Log-TestRunning -message "The following code will be applied to the $($context.GetType().Name)'s variable '$name': $useValue"
+        & $useValue $value
+    }
 }
 
 class TestRunContext : GherkinContextBase
@@ -348,7 +389,14 @@ function Define-TestParametersCore($parameters, [switch] $optional)
         $parameterName = $parameters[2 * $_]
         if ($availableParameters.ContainsKey($parameterName))
         {
-            $parameters[2 * $_ + 1].Value = $availableParameters[$parameterName]
+            $newValue = $availableParameters[$parameterName]
+            $existingValue = $parameters[2 * $_ + 1].Value
+            if ($null -ne $existingValue -and -not ($existingValue -is [string]))
+            {
+                $newValue = [System.Convert]::ChangeType($newValue, $existingValue.GetType())
+            }
+            
+            $parameters[2 * $_ + 1].Value = $newValue
         }
         elseif (-not $optional)
         {
@@ -534,7 +582,7 @@ function Get-AllFailedAssertionsInfo
     }
 }
 
-function Assert-That($condition, $message, [switch] $fatal, [switch] $passThrough, [switch] $omitCallStack)
+function Assert-That($condition, $message, [switch] $canProceed, [switch] $passThrough, [switch] $omitCallStack)
 {
     function Add-FailedAssertionInfo($message)
     {
@@ -553,20 +601,20 @@ function Assert-That($condition, $message, [switch] $fatal, [switch] $passThroug
             throw $message
         }
 
-        if (-not ($fatal -or $omitCallStack))
+        if (-not $omitCallStack -and $canProceed)
         {
             $message = $message + [Environment]::NewLine + ((Get-PSCallStack) -join ([Environment]::NewLine))
         }
 
         Add-FailedAssertionInfo $message
 
-        if ($fatal)
+        if ($canProceed)
         {
-            throw (Get-AllFailedAssertionsInfo)
+            Log-TestRunning -message "Assertion failed: $message"
         }
         else
         {
-            Log-TestRunning -message "Assertion failed: $message"
+            throw (Get-AllFailedAssertionsInfo)
         }
     }
 
