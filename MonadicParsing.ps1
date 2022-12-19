@@ -8,62 +8,83 @@ class SourceCodeLocation
         $this.LineNumber = $ln
         $this.OffsetInLine = $oil
     }
+
+    [string] ToString()
+    {
+        return "line: $($this.LineNumber), char: $($this.OffsetInLine)"
+    }
 }
 
 class SourceCodeFileContent
 {
-    [string[]] hidden   $TextLines
-    [int] hidden        $CurrentLineNumber
-    [int] hidden        $OffsetInCurrentLine
+    hidden [string[]]           $_textLines
+    hidden [SourceCodeLocation] $_currentLocation
 
-    SourceCodeFileContent([string[]] $textLines, [int] $currentLineNumber, [int] $offsetInCurrentLine)
+    SourceCodeFileContent([string[]] $textLines, [SourceCodeLocation] $currentLocation)
     {
-        Verify-That -condition ($currentLineNumber -lt $textLines.Length) -message 'Attempt to read past the end of file'
-        $this.TextLines = $textLines
-        $this.CurrentLineNumber = $currentLineNumber
-        $this.OffsetInCurrentLine = $offsetInCurrentLine
-    }
+        if ($currentLocation.LineNumber -ge $textLines.Length)
+        {
+            throw [System.InvalidOperationException]::new('Attempt to read past the end of file')
+        }
 
-    [SourceCodeLocation] GetCurrentLocation()
-    {
-        return [SourceCodeLocation]::new($this.CurrentLineNumber, $this.OffsetInCurrentLine)
+        $this._textLines = $textLines
+        $this._currentLocation = $currentLocation
     }
 
     [string] GetCodePortion([SourceCodeLocation] $from, [SourceCodeLocation] $to)
     {
-        Verify-That `
-            -condition ($from.LineNumber -lt $this.TextLines.Length -and $to.LineNumber -lt $this.TextLines.Length) `
-            -message 'Attempt to read past the end of file'
+        if ($from.LineNumber -ge $this._textLines.Length -or $to.LineNumber -ge $this._textLines.Length)
+        {
+            throw [System.InvalidOperationException]::new('Attempt to read past the end of file')
+        }
+
         if ($from.LineNumber -eq $to.LineNumber)
         {
-            return $this.TextLines[$from.LineNumber].Substring($from.OffsetInLine, $to.OffsetInLine - $from.OffsetInLine)
+            return $this._textLines[$from.LineNumber].Substring($from.OffsetInLine, $to.OffsetInLine - $from.OffsetInLine)
         }
 
         $resultBuilder = [System.Text.StringBuilder]::new()
-        $resultBuilder.AppendLine($this.TextLines[$from.LineNumber].Substring($from.OffsetInLine))
+        $resultBuilder.AppendLine($this._textLines[$from.LineNumber].Substring($from.OffsetInLine))
         for ($lineNumber = $from.LineNumber + 1; $lineNumber -lt $to.LineNumber; ++$lineNumber)
         {
-            $resultBuilder.AppendLine($this.TextLines[$lineNumber])
+            $resultBuilder.AppendLine($this._textLines[$lineNumber])
         }
 
-        $resultBuilder.Append($this.TextLines[$to.LineNumber].Substring(0, $to.OffsetInLine))
+        $resultBuilder.Append($this._textLines[$to.LineNumber].Substring(0, $to.OffsetInLine))
         return $resultBuilder.ToString()
+    }
+
+    [SourceCodeLocation] GetCurrentLocation()
+    {
+        return [SourceCodeLocation]::new($this._currentLocation.LineNumber, $this._currentLocation.OffsetInLine)
+    }
+
+    [string] GetCurrentLine()
+    {
+        return $this._textLines[$this._currentLocation.LineNumber]
+    }
+
+    [int] GetOffsetInCurrentLine()
+    {
+        return $this._currentLocation.OffsetInLine
     }
 
     [string] GetCurrentLineWithIndicatedPosition()
     {
-        return $this.TextLines[$this.CurrentLineNumber].Insert($this.OffsetInCurrentLine, '↕')
+        return $this._textLines[$this._currentLocation.LineNumber].Insert($this._currentLocation.OffsetInLine, '↕')
     }
 
     [SourceCodeFileContent] Skip([int] $characterCount)
     {
-        return [SourceCodeFileContent]::new($this.TextLines, $this.CurrentLineNumber, $this.OffsetInCurrentLine + $characterCount)
+        return [SourceCodeFileContent]::new(
+            $this._textLines, 
+            [SourceCodeLocation]::new($this._currentLocation.LineNumber, $this._currentLocation.OffsetInLine + $characterCount))
     }
 
     [bool] CurrentLineContainsNonSpaceCharacters()
     {
-        $currentLineChars = $this.TextLines[$this.CurrentLineNumber]
-        return $currentLineChars.Substring($this.OffsetInCurrentLine).Trim().Length -gt 0
+        $currentLineChars = $this._textLines[$this._currentLocation.LineNumber]
+        return $currentLineChars.Substring($this._currentLocation.OffsetInLine).Trim().Length -gt 0
     }
 
     [SourceCodeFileContent] GetNextLine()
@@ -77,17 +98,22 @@ class SourceCodeFileContent
             }
         }
 
-        for ($nextLineIndex = $this.CurrentLineNumber + 1; $nextLineIndex -lt $this.TextLines.Length; $nextLineIndex++)
+        for ($nextLineIndex = $this._currentLocation.LineNumber + 1; $nextLineIndex -lt $this._textLines.Length; $nextLineIndex++)
         {
-            $lineChars = $this.TextLines[$nextLineIndex]
+            $lineChars = $this._textLines[$nextLineIndex]
             $offset = Get-IndexOfFirstNonSpaceCharacter $lineChars
             if ($Null -ne $offset)
             {
-                return [SourceCodeFileContent]::new($this.TextLines, $nextLineIndex, $offset)
+                return [SourceCodeFileContent]::new($this._textLines, [SourceCodeLocation]::new($nextLineIndex, $offset))
             }
         }
 
         return $Null
+    }
+
+    [string] ToString()
+    {
+        return "$($this.GetCurrentLineWithIndicatedPosition()): line $($this._currentLocation.LineNumber + 1), char: $($this._currentLocation.OffsetInLine + 1)"
     }
 }
 
@@ -110,13 +136,21 @@ class Parser
 
     Parser([array] $p)
     {
-        Verify-That -condition ($p.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
+        if ($null -eq $p -or $p.Length -eq 0)
+        {
+            throw [System.InvalidOperationException]::new('Program logic error: trying to parse content with an empty array of parsers')
+        }
+
         $this.Parsers = $p
     }
 }
 
 class MonadicParsing
 {
+    static [System.Diagnostics.TraceSource] $TraceSource = $null
+
+    static [System.Diagnostics.TraceEventType] $TraceEventType = [System.Diagnostics.TraceEventType]::Information
+
     static [ParsingResult] ParseWith($parser, [SourceCodeFileContent] $content)
     {
         switch ($null)
@@ -126,34 +160,38 @@ class MonadicParsing
             }
             { $parser -is [string] } {
                 $patternLength = $parser.Length
-                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-                if ([string]::Compare($currentLineChars, $content.OffsetInCurrentLine, $parser, 0, $patternLength) -ne 0)
+                $currentLineChars = $content.GetCurrentLine()
+                if ([string]::Compare($currentLineChars, $content.GetOffsetInCurrentLine(), $parser, 0, $patternLength) -ne 0)
                 {
-                    Log-Parsing "Literal [$parser] failed on line $($content.GetCurrentLineWithIndicatedPosition()) at offset $($content.OffsetInCurrentLine)"
+                    [MonadicParsing]::Log('Literal {0} failed on line {1}', $parser, $content)
                     return $Null
                 }
 
-                Log-Parsing "Literal [$parser] matched on line $($content.GetCurrentLineWithIndicatedPosition()) at offset $($content.OffsetInCurrentLine)"
+                [MonadicParsing]::Log('Literal {0} matched on line {1}', $parser, $content)
                 return [ParsingResult]::new($parser, $content.Skip($patternLength))
             }
             { $parser -is [regex] } {
-                $currentLineChars = $content.TextLines[$content.CurrentLineNumber]
-                $matchingResult = $parser.Match($currentLineChars, $content.OffsetInCurrentLine)
-                if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.OffsetInCurrentLine))
+                $currentLineChars = $content.GetCurrentLine()
+                $matchingResult = $parser.Match($currentLineChars, $content.GetOffsetInCurrentLine())
+                if (-Not $matchingResult.Success -or ($matchingResult.Index -ne $content.GetOffsetInCurrentLine()))
                 {
-                    Log-Parsing "Regex [$parser] failed on line $($content.GetCurrentLineWithIndicatedPosition()) at offset $($content.OffsetInCurrentLine)"
+                    [MonadicParsing]::Log('Regex {0} failed on line {1}', $parser, $content)
                     return $Null
                 }
 
                 $parsedValue = $matchingResult.Groups[1].Value
-                Log-Parsing "Regex [$parser] matched on line $($content.GetCurrentLineWithIndicatedPosition()) at offset $($content.OffsetInCurrentLine), length=$($matchingResult.Length). Match result: $parsedValue"
+                [MonadicParsing]::Log('Regex {0} matched on line {1}', $parser, $content)
                 return [ParsingResult]::new($parsedValue, $content.Skip($matchingResult.Length))
             }
             { $parser -is [Parser]} {
                 return [MonadicParsing]::ParseWith($parser.Parsers, $content)
             }
             { $parser -is [array] } {
-                Verify-That -condition ($parser.Length -gt 0) -message 'Program logic error: trying to parse content with an empty array of parsers'
+                if ($parser.Length -eq 0)
+                {
+                    throw [System.InvalidOperationException]::new('Program logic error: trying to parse content with an empty array of parsers')
+                }
+
                 [ParsingResult] $parsingResult = $null
                 foreach ($nextParser in $parser)
                 {
@@ -170,7 +208,12 @@ class MonadicParsing
             }
         }
 
-        throw "Do not know how to parse with $parser of type $($parser.GetType())"
+        throw [System.InvalidOperationException]::new("Do not know how to parse with $parser of type $($parser.GetType())")
+    }
+
+    static hidden [void] Log([string] $format, $arg1, $arg2)
+    {
+        [TraceLoggingApi]::Log(([MonadicParsing]::TraceSource), [MonadicParsing]::TraceEventType, $format, $arg1, $arg2)
     }
 }
 
@@ -280,7 +323,12 @@ function Repeat($parser, $separator = $null, [int] $minimum = 1)
 
 function One-Of([array] $parsers)
 {
-    $parsers | ForEach-Object { Verify-That -condition ($_ -ne $Null) -message 'Program logic error: One-Of(...$Null...)' }
+    $parsers | ForEach-Object { 
+        if ($null -eq $_)
+        {
+            throw [System.ArgumentException]::new('parsers', 'Program logic error: One-Of(...$Null...)')
+        }
+    }
 
     return {
         param ([SourceCodeFileContent] $content)
@@ -376,36 +424,14 @@ function From-Parser
         [Parameter(Mandatory=$true, Position=2)]
         [object]$parser)
 
-    $captured_LogParsing_Function = ${function:Log-Parsing}
-
     return {
         param ([SourceCodeFileContent] $content)
-
-        function Dump($value)
-        {
-            if ($value -is [hashtable])
-            {
-                $value.GetEnumerator() | ForEach-Object { "$($_.Name)=$(Dump -value $_.Value)" }
-            }
-            elseif ($value -is [array])
-            {
-                "[$(($value | ForEach-Object { Dump -value $_ })-join ', ')]"
-            }
-            elseif ($null -ne $value)
-            {
-                $value.ToString()
-            }
-            else
-            {
-                '$null'
-            }
-        }
 
         $parsingResult = [MonadicParsing]::ParseWith($parser, $content)
         if ($Null -ne $parsingResult)
         {
             Set-Variable -Name $parsingResultName -Value $parsingResult.Value -Scope 2
-            & $captured_LogParsing_Function "from_ $parsingResultName => $(Dump -value $parsingResult.Value)"
+            [MonadicParsing]::Log('from {0} => {1}', $parsingResultName, $parsingResult.Value)
         }
 
         return $parsingResult

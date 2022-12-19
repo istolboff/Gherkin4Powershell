@@ -3,6 +3,7 @@
 	[string] $stepDefinitions = $null,
     [string] $tags = $Null,
     [string] $cultureName = 'en',
+    [string] $logger = $null,
     [string] $logParsingToFile = $Null,
     [string] $logTestRunningToFile = $Null,
 	[switch] $failFast,
@@ -11,6 +12,7 @@
     [switch] $formatResultsToTable,
     [switch] $whatIf)
 
+. (Join-Path -Path $PSScriptRoot -ChildPath 'Logging.ps1')
 . (Join-Path -Path $PSScriptRoot -ChildPath 'Define-GherkinHooksApi.ps1')
 . (Join-Path -Path $PSScriptRoot -ChildPath 'MonadicParsing.ps1')
 
@@ -20,7 +22,7 @@ trap {
         $errorDescription = (Get-Error | Out-String)
         if ($failFast)
         {
-            Log-TestRunning -message $errorDescription
+            Log-TestRunning -traceLevel Error -message $errorDescription
         }
 
         $errorDescription | Out-Host
@@ -95,14 +97,6 @@ function Split-AndProject([array] $items, [scriptblock] $isSplitter, [scriptbloc
             $currentGroupStart = $currentGroupEnd + 1
         } | `
         Where-Object { $null -ne $_ })
-}
-
-function Log-Parsing($message)
-{
-    if (-Not [string]::IsNullOrEmpty($logParsingToFile))
-    {
-        $message | Out-File -FilePath $logParsingToFile -Append
-    }
 }
 
 function List-Files($fileSet)
@@ -442,8 +436,7 @@ function Build-ScenarioExecutionResults(
 	{
         $exceptionDescription = $exceptionInfo | Get-Error | Out-String
         $message = "$([FeatureContext]::Current.FeatureInfo.Title).$($scenario.Title) $scenarioOutcome. $exceptionDescription"
-        Log-TestRunning $message
-#		Write-Host $message
+        Log-TestRunning -traceLevel Error -message $message
 	}
 	else
 	{
@@ -474,9 +467,9 @@ function Invoke-GherkinHooks([HookType] $hookType)
 
     switch ($hookType)
     {
-        SetupTestRun { Log-TestRunning 'Starting test run' }
-        SetupFeature { Log-TestRunning "Starting feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        SetupScenario { Log-TestRunning "Starting Scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        SetupTestRun { Log-TestRunning -traceLevel Information -message 'Starting test run' }
+        SetupFeature { Log-TestRunning -traceLevel Information -message "Starting feature '{0}'" ([FeatureContext]::Current.FeatureInfo.Title) }
+        SetupScenario { Log-TestRunning -traceLevel Information -message "Starting Scenario '{0}'" ([ScenarioContext]::Current.ScenarioInfo.Title) }
     }
 
     foreach ($hookData in ([Known]::GherkinHooks.ForType($hookType) | Where-Object { Tags-AllowHookInvocation -requiredTags @($_.Tags | Except-Nulls) }))
@@ -490,9 +483,9 @@ function Invoke-GherkinHooks([HookType] $hookType)
 
     switch ($hookType)
     {
-        TeardownTestRun { Log-TestRunning 'Finished test run' }
-        TeardownFeature { Log-TestRunning "Finished feature '$([FeatureContext]::Current.FeatureInfo.Title)'" }
-        TeardownScenario { Log-TestRunning "Finished scenario '$([ScenarioContext]::Current.ScenarioInfo.Title)'" }
+        TeardownTestRun { Log-TestRunning -traceLevel Information -message 'Finished test run' }
+        TeardownFeature { Log-TestRunning -traceLevel Information -message "Finished feature '{0}'" ([FeatureContext]::Current.FeatureInfo.Title) }
+        TeardownScenario { Log-TestRunning -traceLevel Information -message "Finished scenario '{0}'" ([ScenarioContext]::Current.ScenarioInfo.Title) }
     }
 }
 
@@ -526,7 +519,7 @@ function Run-ScenarioStep($stepType)
         $stepText = $_.StepText
         $extraArgument = $_.ExtraArgument
         $stepBinding = Bind-ToStepExecuter -stepType $stepType -stepText $stepText -extraArgument $extraArgument
-        Log-TestRunning "Starting executing step '$($stepBinding.StepPattern)' with arguments <$($stepBinding.StepArguments)> using the following code: {$($stepBinding.StepScript)}"
+        Log-TestRunning -traceLevel Information -message "Starting executing step '{0}' with arguments <{1}> using the following code: {{ {2} }}" ($stepBinding.StepPattern) ($stepBinding.StepArguments) ($stepBinding.StepScript)
         if ($showCurrentStepInConsoleTitle)
         {
             $host.ui.RawUI.WindowTitle = $_.StepText
@@ -541,7 +534,7 @@ function Run-ScenarioStep($stepType)
         }
 
         Invoke-GherkinHooks -hookType ([HookType]::TeardownScenarioStep)
-        Log-TestRunning "Finished executing step '$($stepBinding.StepPattern)' (took $([int]$stepStopwatch.Elapsed.TotalSeconds) seconds)."
+        Log-TestRunning -traceLevel Information -message "Finished executing step '{0}' (took {1} seconds)." ($stepBinding.StepPattern) ([int]$stepStopwatch.Elapsed.TotalSeconds)
     }
 }
 
@@ -777,21 +770,16 @@ function Run-FeatureScenarios($featureFile, $feature)
 }
 #endregion
 
-function Clear-LogFile($filePath)
-{
-    if ((-Not [string]::IsNullOrEmpty($filePath)) -and (Test-Path $filePath))
-    {
-        Remove-Item $filePath
-    }
-}
 
 if (-not $whatIf)
 {
     Validate -parameters @( {$scenarios} )
 }
 
-Clear-LogFile -filePath $logParsingToFile
-Clear-LogFile -filePath $logTestRunningToFile
+$traceListener = TraceLoggingApi-SetupLogging `
+                    -logger $logger `
+                    -testrunner { param([System.Diagnostics.TraceSource] $ts) [TestRunContext]::TraceSource = $ts } `
+                    -parser { param([System.Diagnostics.TraceSource] $ts) [MonadicParsing]::TraceSource = $ts }
 
 if (-Not $doNotCleanupGherkinRunningInfrastructure)
 {
@@ -880,7 +868,7 @@ else
 {
     $parsedScenarios = @(List-Files $scenarios | ForEach-Object {
             $scriptFilePath = $_
-            $scriptFileContent = [SourceCodeFileContent]::new(@(Get-Content $scriptFilePath), -1, 0)
+            $scriptFileContent = [SourceCodeFileContent]::new(@(Get-Content $scriptFilePath), [SourceCodeLocation]::new(-1, 0))
             $parsingResult = [MonadicParsing]::ParseWith($GherkinDocument, $scriptFileContent)
             if ($null -eq $parsingResult)
             {
@@ -919,4 +907,9 @@ else
     {
         $featureExecutionResults
     }
+}
+
+if ($null -ne $traceListener)
+{
+    $traceListener.Close()
 }

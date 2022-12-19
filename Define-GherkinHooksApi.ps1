@@ -70,6 +70,11 @@ function Verify-That($condition, $message)
         throw $exactMessage
     }
 }
+
+function Log-TestRunning([string] $message, [System.Diagnostics.TraceEventType] $traceLevel)
+{
+    [TraceLoggingApi]::LogCore(([TestRunContext]::TraceSource), $traceLevel, $message, $Args)
+}
 #endregion
 
 #region Enumerations
@@ -141,10 +146,10 @@ function GetOrCreateContextValue([GherkinContextBase] $context, [string] $name, 
 {
     if (-not $context.HasValue($name))
     {
-        Log-TestRunning -message "Creating $($context.GetType().Name)'s variable '$name' using the following code: $createValue"
+        Log-TestRunning -traceLevel Information -message "Creating {0}'s variable '{1}' using the following code: {2}" $context.GetType().Name $name $createValue
         $value = & $createValue
         $context.SetValue($name, $value)
-        Log-TestRunning -message "Context variable '$name' was set to $value"
+        Log-TestRunning -traceLevel Information -message "Context variable '{0}' was set to {1}" $name $value
     }
 
     if (-not $asVoid)
@@ -158,7 +163,7 @@ function TryUseContextValue([GherkinContextBase] $context, [string] $name, [scri
     if ($context.HasValue($name))
     {
         $value = $context.GetValue($name)
-        Log-TestRunning -message "The following code will be applied to the $($context.GetType().Name)'s variable '$name': $useValue"
+        Log-TestRunning -traceLevel Information -message "The following code will be applied to the {0}'s variable '{1}': {2}" $context.GetType().Name $name $useValue
         & $useValue $value
     }
 }
@@ -166,6 +171,8 @@ function TryUseContextValue([GherkinContextBase] $context, [string] $name, [scri
 class TestRunContext : GherkinContextBase
 {
     static [TestRunContext] $Current
+
+    static [System.Diagnostics.TraceSource] $TraceSource = $null
 }
 
 class FeatureContext : GherkinContextBase
@@ -561,16 +568,6 @@ function Given-WhenThen([regex]$stepPattern, [scriptblock] $stepScript)
 }
 #endregion
 
-#region Logging API
-function Log-TestRunning($message)
-{
-    if (-Not [string]::IsNullOrEmpty($logTestRunningToFile))
-    {
-        "$([datetime]::Now.ToString("HH:mm:ss.ffff"))   $message" | Out-File -FilePath $logTestRunningToFile -Append
-    }
-}
-#endregion
-
 #region Assert API
 $failedAssertionsListName = '__FailedAssertions_F0FA5986-216F-4791-BE7E-3E50989A5720'
 
@@ -610,7 +607,7 @@ function Assert-That($condition, $message, [switch] $canProceed, [switch] $passT
 
         if ($canProceed)
         {
-            Log-TestRunning -message "Assertion failed: $message"
+            Log-TestRunning -traceLevel Warning -message "Assertion failed: {0}" $message
         }
         else
         {

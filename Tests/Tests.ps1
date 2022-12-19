@@ -1,7 +1,7 @@
-﻿param ([string] $logToFolder)
+﻿param ([string] $logToFolder, [string] $extraLoggerParams = 'sourceLevel=Information')
 
 $scriptFolder = $PSScriptRoot
-. (Join-Path -Path $scriptFolder -ChildPath 'Define-GherkinHooksApi.ps1')
+. (Resolve-Path -Path (Join-Path -Path $scriptFolder -ChildPath '..\Define-GherkinHooksApi.ps1'))
 
 trap {
     Get-Error | Out-Host
@@ -21,14 +21,13 @@ function Running($scriptContent, $illustrating, $tags = $Null, $cultureName = 'e
     try
     {
         $temporaryFilePath = Save-ContentToTemporaryFile $scriptContent
-        $parsingLogFile = if (-Not [string]::IsNullOrEmpty($logToFolder)) { Join-Path $logToFolder 'parser.log' }
-        $runningLogFile = if (-Not [string]::IsNullOrEmpty($logToFolder)) { Join-Path $logToFolder 'test-run.log' }
-        $featureExecutionResults = @(& $(Join-Path -Path $scriptFolder -ChildPath 'Run-GherkinScenarios.ps1') `
+        
+        $logger = if (-Not [string]::IsNullOrEmpty($logToFolder)) { "file=$(Join-Path $logToFolder 'test-run.log');$extraLoggerParams" }
+        $featureExecutionResults = @(& $(Join-Path -Path $scriptFolder -ChildPath '..\Run-GherkinScenarios.ps1') `
                                 -scenarios $temporaryFilePath `
                                 -tags $tags `
                                 -cultureName $cultureName `
-                                -logParsingToFile $parsingLogFile `
-                                -logTestRunningToFile $runningLogFile `
+                                -logger $logger `
                                 -doNotCleanupGherkinRunningInfrastructure `
                                 -failFast:$failFast)
         if ($featureExecutionResults.Length -eq 0 -and $scriptContent -ne '')
